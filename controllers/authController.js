@@ -1,0 +1,177 @@
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+const Account = require('../models/Account');
+
+const generateToken = (userId) => {
+    return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '24h' });
+};
+
+const generateAccountNumber = () => {
+    const timestamp = Date.now().toString();
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `ACC${timestamp}${random}`;
+};
+
+const register = async (req, res) => {
+    try {
+        const { email, password, firstName,surname,otherNames, phoneNumber } = req.body;
+
+        // Check if user already exists
+        const existingUser = await User.findOne({ where: { email } });
+        if (existingUser) {
+            return res.status(400).json({
+                success: false,
+                message: 'User with this email already exists'
+            });
+        }
+
+        // Create user
+        const user = await User.create({
+            email,
+            password,
+            firstName,
+            surname,
+            otherNames,
+            phoneNumber
+        });
+
+        // Create default account for user with explicit account number
+        const accountNumber = generateAccountNumber();
+        await Account.create({
+            userId: user.id,
+            accountNumber: accountNumber,
+            accountType: 'checking',
+            balance: 0.00
+        });
+
+        // Generate token
+        const token = generateToken(user.id);
+
+        res.status(201).json({
+            success: true,
+            message: 'User registered successfully',
+            token,
+            user: {
+                id: user.id,
+                email: user.email,
+                firstName: user.firstName,
+                surname:user.surname,
+                otherNames:user.otherNames,
+                phoneNumber: user.phoneNumber,
+                balance: user.balance,
+                status: user.status
+            }
+        });
+    } catch (error) {
+        console.error('Registration error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Registration failed',
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        });
+    }
+};
+
+const login = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        // Find user by email
+        const user = await User.findOne({ where: { email } });
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid email or password'
+            });
+        }
+
+        // Check password
+        const isValidPassword = await user.comparePassword(password);
+        if (!isValidPassword) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid email or password'
+            });
+        }
+
+        // Check if account is active
+        if (user.status !== 'active') {
+            return res.status(401).json({
+                success: false,
+                message: 'Account is suspended or pending verification'
+            });
+        }
+
+        // Update last login
+        await user.updateLastLogin();
+
+        // Generate token
+        const token = generateToken(user.id);
+
+        res.json({
+            success: true,
+            message: 'Login successful',
+            token,
+            user: {
+                id: user.id,
+                email: user.email,
+                firstName: user.firstName,
+                surname:user.surname,
+                otherNames:user.otherNames,
+                phoneNumber: user.phoneNumber,
+                balance: user.balance,
+                status: user.status,
+                lastLoginAt: user.lastLoginAt
+            }
+        });
+    } catch (error) {
+        console.error('Login error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Login failed',
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        });
+    }
+};
+
+const getProfile = async (req, res) => {
+    try {
+        const user = req.user; // From auth middleware
+
+        // Get user's accounts
+        const accounts = await Account.findAll({
+            where: { userId: user.id },
+            attributes: ['id', 'accountNumber', 'accountType', 'balance', 'currency', 'status']
+        });
+
+        res.json({
+            success: true,
+            user: {
+                id: user.id,
+                email: user.email,
+                firstName: user.firstName,
+                surname:user.surname,
+                otherNames:user.otherNames,
+                phoneNumber: user.phoneNumber,
+                balance: user.balance,
+                status: user.status,
+                emailVerified: user.emailVerified,
+                lastLoginAt: user.lastLoginAt,
+                accounts
+            }
+        });
+    } catch (error) {
+        console.error('Get profile error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get profile',
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        });
+    }
+};
+
+module.exports = {
+    register,
+    login,
+    getProfile
+};
