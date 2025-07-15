@@ -30,3 +30,5 @@ coverage/
 *.sqlite
 *.sqlite3
 *.bak
+node_modules/
+.env

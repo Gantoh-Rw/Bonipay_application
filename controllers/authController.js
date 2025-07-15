@@ -2,8 +2,8 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Account = require('../models/Account');
 
-const generateToken = (userId) => {
-    return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '24h' });
+const generateToken = (userId,role) => {
+    return jwt.sign({ userId,role }, process.env.JWT_SECRET, { expiresIn: '24h' });
 };
 
 const generateAccountNumber = () => {
@@ -94,33 +94,34 @@ const login = async (req, res) => {
             });
         }
 
-        // Check if account is active
-        if (user.status !== 'active') {
-            return res.status(401).json({
-                success: false,
-                message: 'Account is suspended or pending verification'
-            });
+        // Check account status - different logic for admin vs regular users
+        if (user.role === 'admin') {
+            
+        } else {
+            // For regular users: check if account is active
+            if (user.status !== 'active') {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Account is suspended or pending verification'
+                });
+            }
         }
 
         // Update last login
         await user.updateLastLogin();
 
-        // Generate token
-        const token = generateToken(user.id);
+        // Generate token with role
+        const token = generateToken(user.id, user.role);  
+
+        // Use the getPublicData method to get appropriate user data
+        const userData = user.getPublicData();
 
         res.json({
             success: true,
             message: 'Login successful',
             token,
             user: {
-                id: user.id,
-                email: user.email,
-                firstName: user.firstName,
-                surname:user.surname,
-                otherNames:user.otherNames,
-                phoneNumber: user.phoneNumber,
-                balance: user.balance,
-                status: user.status,
+                ...userData,
                 lastLoginAt: user.lastLoginAt
             }
         });
