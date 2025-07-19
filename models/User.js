@@ -1,5 +1,5 @@
 const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const { sequelize } = require('../config/config');
 const bcrypt = require('bcryptjs');
 
 const User = sequelize.define('User', {
@@ -52,37 +52,14 @@ const User = sequelize.define('User', {
             len: [10, 20]
         }
     },
-    balance: {
-        type: DataTypes.DECIMAL(10, 2),
-        allowNull: true, // Made nullable for admin users
-        defaultValue: null, // No default for admin
-        validate: {
-            min: 0,
-            // Custom validator to ensure balance is set for regular users
-            balanceRequired(value) {
-                if (this.role === 'user' && (value === null || value === undefined)) {
-                    throw new Error('Balance is required for regular users');
-                }
-            }
-        }
-    },
-    status: {
-        type: DataTypes.ENUM('active', 'suspended', 'pending'),
-        allowNull: true, // Made nullable for admin users
-        defaultValue: null, // No default for admin
-        validate: {
-            // Custom validator to ensure status is set for regular users
-            statusRequired(value) {
-                if (this.role === 'user' && !value) {
-                    throw new Error('Status is required for regular users');
-                }
-            }
-        }
-    },
+
     role: {
-        type: DataTypes.ENUM('user', 'admin'),
-        defaultValue: 'user'
-    },
+    type: DataTypes.STRING(10),
+    defaultValue: 'user',
+    validate: {
+        isIn: [['user', 'admin']]
+    }
+        },
     emailVerified: {
         type: DataTypes.BOOLEAN,
         defaultValue: false
@@ -98,12 +75,6 @@ const User = sequelize.define('User', {
         beforeCreate: async (user) => {
             if (user.password) {
                 user.password = await bcrypt.hash(user.password, 12);
-            }
-            
-            // Set defaults based on role
-            if (user.role === 'user') {
-                if (user.balance === null) user.balance = 0.00;
-                if (user.status === null) user.status = 'active';
             }
         },
         beforeUpdate: async (user) => {
@@ -138,16 +109,40 @@ User.prototype.getPublicData = function() {
         lastLoginAt: this.lastLoginAt
     };
 
-    // Add user-specific fields only for regular users
-    if (this.role === 'user') {
+    return baseData
+};
+
+
+// Add mobile money methods
+User.prototype.getTransactionLimits = async function() {
+    const kyc = await this.getKyc();
+    
+    if (!kyc || kyc.verificationStatus !== 'verified') {
         return {
-            ...baseData,
-            balance: this.balance,
-            status: this.status
+            daily_deposit_limit: 100,
+            daily_withdrawal_limit: 50,
+            monthly_limit: 1000
         };
     }
+    
+    return {
+        daily_deposit_limit: 10000,
+        daily_withdrawal_limit: 5000,
+        monthly_limit: 50000
+    };
+};
 
-    return baseData;
+User.prototype.canProcessTransaction = async function(amount, type) {
+    const limits = await this.getTransactionLimits();
+    
+    switch (type) {
+        case 'deposit':
+            return amount <= limits.daily_deposit_limit;
+        case 'withdrawal':
+            return amount <= limits.daily_withdrawal_limit;
+        default:
+            return true;
+    }
 };
 
 module.exports = User;

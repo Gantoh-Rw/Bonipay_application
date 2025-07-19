@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Account = require('../models/Account');
 
 const authenticateToken = async (req, res, next) => {
     try {
@@ -23,11 +24,15 @@ const authenticateToken = async (req, res, next) => {
             });
         }
 
-        if (user.status !== 'active') {
-            return res.status(401).json({
-                success: false,
-                message: 'Account is suspended'
-            });
+        // Check account status for non-admin users
+        if (user.role !== 'admin') {
+            const userAccount = await Account.findOne({ where: { userId: user.id } });
+            if (!userAccount || userAccount.status !== 'active') {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Account is suspended'
+                });
+            }
         }
 
         req.user = user;

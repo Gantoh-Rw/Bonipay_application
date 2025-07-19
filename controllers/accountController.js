@@ -1,23 +1,49 @@
 const User = require('../models/User');
 const Account = require('../models/Account');
+const Wallet = require('../models/Wallet'); // Add this import
 
 const getBalance = async (req, res) => {
     try {
         const userId = req.user.id;
 
-        const accounts = await Account.findAll({
-            where: { userId },
-            attributes: ['id', 'accountNumber', 'accountType', 'balance', 'currency', 'status']
+        // Get wallets for actual balance information
+        const wallets = await Wallet.findAll({
+            where: { userid: userId, status: 'active' },
+            attributes: ['currency', 'balance', 'available_balance', 'reserved_balance']
         });
 
-        const totalBalance = accounts.reduce((sum, account) => {
-            return sum + parseFloat(account.balance);
+        // Get accounts for identification/display
+        const accounts = await Account.findAll({
+            where: { userId },
+            attributes: ['accountNumber', 'accountType', 'currency', 'status']
+        });
+
+        // Format for user display
+        const userBalances = wallets.map(wallet => {
+            const account = accounts.find(acc => acc.currency === wallet.currency);
+            return {
+                currency: wallet.currency,
+                balance: wallet.balance, // Total money they own
+                available: wallet.available_balance, // Money they can spend now
+                accountNumber: account?.accountNumber,
+                accountType: account?.accountType,
+                status: account?.status,
+                // Only show reserved balance to admins
+                ...(req.user.role === 'admin' && { 
+                    reserved: wallet.reserved_balance 
+                })
+            };
+        });
+
+        // Calculate total balance across all currencies (in their base amounts)
+        const totalBalance = wallets.reduce((sum, wallet) => {
+            return sum + parseFloat(wallet.balance);
         }, 0);
 
         res.json({
             success: true,
             totalBalance: totalBalance.toFixed(2),
-            accounts
+            balances: userBalances
         });
     } catch (error) {
         console.error('Get balance error:', error);
@@ -32,7 +58,7 @@ const getBalance = async (req, res) => {
 const updateProfile = async (req, res) => {
     try {
         const userId = req.user.id;
-        const { firstName,surname,otherNames, phoneNumber } = req.body;
+        const { firstName, surname, otherNames, phoneNumber } = req.body;
 
         const user = await User.findByPk(userId);
         if (!user) {
@@ -44,8 +70,8 @@ const updateProfile = async (req, res) => {
 
         await user.update({
             firstName: firstName || user.firstName,
-            surname:surname || user.surname,
-            otherNames:otherNames || user.otherNames,
+            surname: surname || user.surname,
+            otherNames: otherNames || user.otherNames,
             phoneNumber: phoneNumber || user.phoneNumber
         });
 
@@ -55,9 +81,9 @@ const updateProfile = async (req, res) => {
             user: {
                 id: user.id,
                 email: user.email,
-                firstName:user.firstName,
-                surname:user.surname,
-                otherNames,
+                firstName: user.firstName,
+                surname: user.surname,
+                otherNames: user.otherNames,
                 phoneNumber: user.phoneNumber,
                 status: user.status
             }

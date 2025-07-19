@@ -1,5 +1,5 @@
 const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const { sequelize } = require('../config/config');
 
 const Account = sequelize.define('Account', {
     id: {
@@ -24,13 +24,6 @@ const Account = sequelize.define('Account', {
         type: DataTypes.ENUM('checking', 'savings', 'business'),
         defaultValue: 'checking'
     },
-    balance: {
-        type: DataTypes.DECIMAL(10, 2),
-        defaultValue: 0.00,
-        validate: {
-            min: 0
-        }
-    },
     currency: {
         type: DataTypes.STRING(3),
         defaultValue: 'USD'
@@ -48,7 +41,9 @@ const Account = sequelize.define('Account', {
             if (!account.accountNumber) {
                 const timestamp = Date.now().toString();
                 const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-                account.accountNumber = `ACC${timestamp}${random}`;
+                // Use currency prefix instead of generic "ACC"
+                const prefix = account.currency || 'ACC';
+                account.accountNumber = `${prefix}${account.userId || ''}${timestamp}${random}`;
             }
         }
     }

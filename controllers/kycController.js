@@ -165,7 +165,7 @@ const uploadIdentityDocument = async (req, res) => {
             });
         }
 
-        // Find existing KYC record
+        // ✅ CORRECT - Find existing KYC record
         let kycRecord = await KYC.findOne({
             where: { userId }
         });
@@ -182,7 +182,6 @@ const uploadIdentityDocument = async (req, res) => {
             fs.unlinkSync(kycRecord.documentPath);
         }
 
-        // Update KYC record with document info
         await kycRecord.update({
             identityType,
             identityNumber,
@@ -215,11 +214,11 @@ const uploadIdentityDocument = async (req, res) => {
     }
 };
 
-// Submit KYC for verification
 const submitKYCForVerification = async (req, res) => {
     try {
         const userId = req.user.id;
 
+        // ✅ CORRECT - Find KYC record from kyc_records table
         const kycRecord = await KYC.findOne({
             where: { userId }
         });
@@ -243,7 +242,7 @@ const submitKYCForVerification = async (req, res) => {
             });
         }
 
-        // Update status to pending
+        // ✅ CORRECT - Update status to pending
         await kycRecord.update({
             verificationStatus: 'pending'
         });

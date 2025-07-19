@@ -1,16 +1,19 @@
 const User = require('../models/User');
+const kyc = require('../models/kyc');
+const Account = require('../models/Account');
+const Wallet =require('../models/Wallet');
 const { Op } = require('sequelize');
 
 // Get dashboard statistics
 const getDashboardStats = async (req, res) => {
   try {
     const totalUsers = await User.count();
-    const activeUsers = await User.count({ where: { status: 'active' } });
-    const pendingUsers = await User.count({ where: { status: 'pending' } });
-    const suspendedUsers = await User.count({ where: { status: 'suspended' } });
-    const pendingKyc = await User.count({ 
+    const activeUsers = await Account.count({ where: { status: 'active' } });
+    const pendingUsers = await Account.count({ where: { status: 'pending' } });
+    const suspendedUsers = await Account.count({ where: { status: 'suspended' } });
+    const pendingKyc = await kyc.count({ 
       where: { 
-        status: 'pending',
+        verificationStatus: 'pending',
         documentPath: { [Op.ne]: null }
       } 
     });
@@ -52,7 +55,7 @@ const getUsers = async (req, res) => {
     const { page = 1, limit = 10, status, search } = req.query;
     const offset = (page - 1) * limit;
 
-    let whereClause = {};
+    let whereClause = {role: 'user'};
     
     // Filter by status if provided
     if (status && status !== 'all') {
@@ -74,7 +77,7 @@ const getUsers = async (req, res) => {
       offset: parseInt(offset),
       attributes: [
         'id', 'email', 'firstName', 'surname', 'phoneNumber', 
-        'status', 'balance', 'kycStatus', 'lastLoginAt', 
+        'status', 'balance', 'lastLoginAt','emailVerified', 
         'createdAt', 'updatedAt'
       ],
       order: [['createdAt', 'DESC']]
@@ -106,8 +109,8 @@ const getUserById = async (req, res) => {
     const user = await User.findByPk(id, {
       attributes: [
         'id', 'email', 'firstName', 'surname', 'phoneNumber', 
-        'status', 'balance', 'kycStatus', 'documentPath',
-        'documentType', 'lastLoginAt', 'createdAt', 'updatedAt'
+        'status', 'balance',
+         'lastLoginAt', 'createdAt', 'updatedAt','emailVerified'
       ]
     });
 
@@ -169,27 +172,35 @@ const updateUserStatus = async (req, res) => {
   }
 };
 
-// Get KYC requests
+// Get KYC requests - FIXED VERSION
 const getKycRequests = async (req, res) => {
   try {
-    const { page = 1, limit = 10, VerificationStatus = 'pending' } = req.query;
+    const { page = 1, limit = 10, verificationStatus = 'pending' } = req.query;
     const offset = (page - 1) * limit;
 
-    const whereClause = {
+    // Build where clause for KYC table only
+    const kycWhereClause = {
       documentPath: { [Op.ne]: null }
     };
 
-    if (VerificationStatus !== 'all') {
-      whereClause.kycStatus = VerificationStatus;
+    if (verificationStatus !== 'all') {
+      kycWhereClause.verificationStatus = verificationStatus;
     }
 
-    const { count, rows: kycRequests } = await User.findAndCountAll({
-      where: whereClause,
+    const { count, rows: kycRequests } = await kyc.findAndCountAll({
+      where: kycWhereClause,
+      include: [{
+        model: User,
+        where: { role: 'user' }, // Filter users by role in the include
+        attributes: ['email', 'firstName', 'surname', 'phoneNumber'],
+        required: true // This ensures we only get KYC records with valid user relationships
+      }],
       limit: parseInt(limit),
       offset: parseInt(offset),
       attributes: [
-        'id', 'email', 'firstName', 'surname', 'phoneNumber',
-        'kycStatus', 'documentPath', 'documentPath',
+        'id', 'userId', 'fullName', 'nationality', 'gender',
+        'dateOfBirth', 'identityType', 'identityNumber', 'documentPath',
+        'verificationStatus', 'rejectionReason', 'verifiedAt',
         'createdAt', 'updatedAt'
       ],
       order: [['createdAt', 'DESC']]
@@ -217,35 +228,52 @@ const getKycRequests = async (req, res) => {
 const updateKycStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { kycStatus, rejectionReason } = req.body;
+    const { verificationStatus, rejectionReason } = req.body;
 
-    if (!['pending', 'verified', 'rejected', 'incomplete'].includes(kycStatus)) {
+    if (!['pending', 'verified', 'rejected', 'incomplete'].includes(verificationStatus)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid KYC status. Must be pending, approved, or rejected'
+        message: 'Invalid verification status. Must be pending, verified, rejected, or incomplete'
       });
     }
 
-    const user = await User.findByPk(id);
+    const kycRecord = await kyc.findByPk(id);
 
-    if (!user) {
+    if (!kycRecord) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: 'KYC record not found'
       });
     }
 
-    const updateData = { kycStatus };
-    if (kycStatus === 'rejected' && rejectionReason) {
-      updateData.kyc_rejection_reason = rejectionReason;
+    const updateData = { verificationStatus };
+    
+    if (verificationStatus === 'verified') {
+      updateData.verifiedAt = new Date();
+      // Check if req.admin exists before using it
+      if (req.admin && req.admin.id) {
+        updateData.verifiedBy = req.admin.id;
+      }
+    }
+    
+    if (verificationStatus === 'rejected' && rejectionReason) {
+      updateData.rejectionReason = rejectionReason;
     }
 
-    await user.update(updateData);
+    await kycRecord.update(updateData);
+
+    // Include user data in response
+    const updatedRecord = await kyc.findByPk(id, {
+      include: [{
+        model: User,
+        attributes: ['email', 'firstName', 'surname']
+      }]
+    });
 
     res.json({
       success: true,
-      message: `KYC status updated to ${kycStatus}`,
-      data: { user }
+      message: `KYC status updated to ${verificationStatus}`,
+      data: { kycRecord: updatedRecord }
     });
   } catch (error) {
     console.error('Error updating KYC status:', error);
@@ -279,18 +307,51 @@ const getTransactions = async (req, res) => {
   }
 };
 
-// Get accounts data (placeholder for now)
 const getAccountsData = async (req, res) => {
   try {
-    // This would be implemented when you have account models
-    // For now, returning mock data structure
+    const { page = 1, limit = 10, status, accountType, search } = req.query;
+    const offset = (page - 1) * limit;
+
+    let whereClause = {};
+    
+    // Filter by status if provided
+    if (status && status !== 'all') {
+      whereClause.status = status;
+    }
+
+    // Filter by account type if provided
+    if (accountType && accountType !== 'all') {
+      whereClause.accountType = accountType;
+    }
+
+    // Search by account number
+    if (search) {
+      whereClause.accountNumber = { [Op.iLike]: `%${search}%` };
+    }
+
+    const { count, rows: accounts } = await Account.findAndCountAll({
+      where: whereClause,
+      include: [{
+        model: User,
+        attributes: ['id', 'email', 'firstName', 'surname', 'phoneNumber'],
+        required: true
+      }],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      attributes: [
+        'id', 'userId', 'accountNumber', 'accountType',  
+        'currency', 'status', 'createdAt', 'updatedAt'
+      ],
+      order: [['createdAt', 'DESC']]
+    });
+
     res.json({
       success: true,
       data: {
-        accounts: [],
-        totalAccounts: 0,
-        currentPage: 1,
-        totalPages: 0
+        accounts,
+        totalAccounts: count,
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(count / limit)
       }
     });
   } catch (error) {
@@ -298,6 +359,52 @@ const getAccountsData = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error fetching accounts'
+    });
+  }
+};
+
+// Update account status
+const updateAccountStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!['active', 'frozen', 'closed'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be active, frozen, or closed'
+      });
+    }
+
+    const account = await Account.findByPk(id);
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        message: 'Account not found'
+      });
+    }
+
+    await account.update({ status });
+
+    // Get updated account with user data
+    const updatedAccount = await Account.findByPk(id, {
+      include: [{
+        model: User,
+        attributes: ['email', 'firstName', 'surname']
+      }]
+    });
+
+    res.json({
+      success: true,
+      message: `Account status updated to ${status}`,
+      data: { account: updatedAccount }
+    });
+  } catch (error) {
+    console.error('Error updating account status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating account status'
     });
   }
 };
@@ -310,5 +417,6 @@ module.exports = {
   getKycRequests,
   updateKycStatus,
   getTransactions,
-  getAccountsData
+  getAccountsData,
+  updateAccountStatus
 };

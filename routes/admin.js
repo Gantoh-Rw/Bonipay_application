@@ -7,7 +7,8 @@ const {
   getKycRequests,
   updateKycStatus,
   getTransactions,
-  getAccountsData
+  getAccountsData,
+  updateAccountStatus
 } = require('../controllers/adminController');
 const authController = require('../controllers/authController');
 const { authenticateAdmin } = require('../middleware/adminAuth');
@@ -36,5 +37,6 @@ router.get('/transactions', getTransactions);
 
 // Account management routes
 router.get('/accounts', getAccountsData);
+router.put('/accounts/:id/status', updateAccountStatus);
 
 module.exports = router;
