@@ -97,6 +97,7 @@ async function startServer() {
 
        // Account associations (for discovery/search only)
        Account.belongsTo(User, { foreignKey: 'userId' });
+       Account.hasMany(Wallet, { foreignKey: 'userid', sourceKey: 'userId' });
 
        // Wallet associations (for balance management)
        Wallet.belongsTo(User, { foreignKey: 'userid' });
@@ -108,6 +109,7 @@ async function startServer() {
        Transaction.belongsTo(FloatAccount, { foreignKey: 'float_account_id' });
        Transaction.hasMany(WalletMovement, { foreignKey: 'transaction_id' });
        Transaction.hasMany(MpesaWebhook, { foreignKey: 'transaction_id' });
+    
 
        // Other associations
        kyc.belongsTo(User, { foreignKey: 'userId' });

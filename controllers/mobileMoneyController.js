@@ -3,45 +3,50 @@ const { validationResult } = require('express-validator');
 
 class MobileMoneyController {
     // Initiate deposit
-    static async initiateDeposit(req, res) {
-        try {
-            const errors = validationResult(req);
-            if (!errors.isEmpty()) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Validation failed',
-                    errors: errors.array()
-                });
-            }
-
-            const { amount, currency } = req.body;
-            const userId = req.user.id;
-
-            // Check if user's KYC is verified
-            const kyc = await req.user.getKyc();
-            if (!kyc || kyc.verificationStatus !== 'verified') {
-                return res.status(400).json({
-                    success: false,
-                    message: 'KYC verification required',
-                    kyc_status: kyc?.verificationStatus || 'incomplete'
-                });
-            }
-
-            const result = await MobileMoneyService.initiateDeposit(userId, amount, currency);
-
-            res.status(200).json({
-                success: true,
-                message: 'Deposit initiated successfully',
-                data: result
-            });
-        } catch (error) {
-            console.error('Deposit initiation failed:', error);
-            res.status(500).json({
+   static async initiateDeposit(req, res) {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
                 success: false,
-                message: error.message
+                message: 'Validation failed',
+                errors: errors.array()
             });
         }
+
+        const { amount, currency } = req.body;
+        const userId = req.user.id;
+
+        // Check if user's KYC is verified
+        const kyc = await req.user.getKyc();
+        if (!kyc || kyc.verificationStatus !== 'verified') {
+            return res.status(400).json({
+                success: false,
+                message: 'KYC verification required',
+                kyc_status: kyc?.verificationStatus || 'incomplete'
+            });
+        }
+
+        // Get idempotency key from header OR auto-generate
+        let idempotencyKey = req.headers['idempotency-key'];
+        if (!idempotencyKey) {
+        }
+
+        const result = await MobileMoneyService.initiateDeposit(userId, amount, currency, idempotencyKey);
+
+        res.status(200).json({
+            success: true,
+            message: 'Deposit initiated successfully',
+            data: result
+        });
+    } catch (error) {
+        console.error('Deposit initiation failed:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
+}
 
     // Process internal transfer
     static async processInternalTransfer(req, res) {
@@ -84,6 +89,99 @@ class MobileMoneyController {
             });
         }
     }
+
+    static async initiateWithdrawal(req, res) {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: errors.array()
+            });
+        }
+
+        const { amount, currency, phone_number } = req.body;
+        const userId = req.user.id;
+
+        // Check if user's KYC is verified
+        const kyc = await req.user.getKyc();
+        if (!kyc || kyc.verificationStatus !== 'verified') {
+            return res.status(400).json({
+                success: false,
+                message: 'KYC verification required for withdrawals',
+                kyc_status: kyc?.verificationStatus || 'incomplete'
+            });
+        }
+
+        // Get idempotency key from header OR auto-generate
+        const idempotencyKey = req.headers['idempotency-key'] || `withdraw_${userId}_${Date.now()}`;
+
+        const result = await MobileMoneyService.initiateWithdrawal(userId, amount, currency, phone_number, idempotencyKey);
+
+        res.status(200).json({
+            success: true,
+            message: 'Withdrawal initiated successfully',
+            data: result
+        });
+    } catch (error) {
+        console.error('Withdrawal initiation failed:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+}
+static async sendMoneyToAnyone(req, res) {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: errors.array()
+            });
+        }
+
+        const { amount, currency, phone_number, recipient_name, purpose } = req.body;
+        const userId = req.user.id;
+
+        // Check if user's KYC is verified
+        const kyc = await req.user.getKyc();
+        if (!kyc || kyc.verificationStatus !== 'verified') {
+            return res.status(400).json({
+                success: false,
+                message: 'KYC verification required to send money',
+                kyc_status: kyc?.verificationStatus || 'incomplete'
+            });
+        }
+
+        // Get idempotency key from header OR auto-generate
+        const idempotencyKey = req.headers['idempotency-key'] || `send_${userId}_${Date.now()}`;
+
+        const result = await MobileMoneyService.sendMoneyToAnyone(
+            userId, 
+            amount, 
+            currency, 
+            phone_number, 
+            idempotencyKey,
+            recipient_name,
+            purpose
+        );
+
+        res.status(200).json({
+            success: true,
+            message: 'Money sent successfully',
+            data: result
+        });
+    } catch (error) {
+        console.error('Send money failed:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+}
 
     // Get transaction history
     static async getTransactionHistory(req, res) {

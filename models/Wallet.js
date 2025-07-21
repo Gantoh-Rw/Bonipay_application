@@ -91,7 +91,7 @@ Wallet.prototype.canReserve = function(amount) {
     return this.getAvailableBalance() >= parseFloat(amount);
 };
 
-// Reserve funds for transaction
+// Reserve funds for transaction - FIXED VERSION
 Wallet.prototype.reserveFunds = async function(amount, transaction = null) {
     const amountToReserve = parseFloat(amount);
     
@@ -99,9 +99,13 @@ Wallet.prototype.reserveFunds = async function(amount, transaction = null) {
         throw new Error('Insufficient available balance to reserve funds');
     }
     
+    // Parse DECIMAL fields properly
+    const currentAvailable = parseFloat(this.available_balance) || 0;
+    const currentReserved = parseFloat(this.reserved_balance) || 0;
+    
     await this.update({
-        available_balance: this.available_balance - amountToReserve,
-        reserved_balance: this.reserved_balance + amountToReserve,
+        available_balance: currentAvailable - amountToReserve,
+        reserved_balance: currentReserved + amountToReserve,  
         version: this.version + 1
     }, { transaction });
 };

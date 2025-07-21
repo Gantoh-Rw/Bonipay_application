@@ -55,6 +55,36 @@ class WebhookController {
             });
         }
     }
+    
+    static async simulateB2CCompletion(req, res) {
+    try {
+        const { transaction_ref, mpesa_transaction_id } = req.body;
+        
+        if (!transaction_ref) {
+            return res.status(400).json({
+                success: false,
+                message: 'transaction_ref is required'
+            });
+        }
+
+        const result = await MobileMoneyService.processB2CCompletion({
+            transaction_ref: transaction_ref,
+            mpesa_transaction_id: mpesa_transaction_id || `SIM${Date.now()}`
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'B2C withdrawal completed',
+            data: result
+        });
+    } catch (error) {
+        console.error('B2C completion failed:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+}
 
     // Handle timeout
     static async handleTimeout(req, res) {
