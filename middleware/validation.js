@@ -69,10 +69,41 @@ const updateProfileValidation = [
         .isMobilePhone()
         .withMessage('Please provide a valid phone number')
 ];
+const validateCustomRate = [
+    body('from_currency')
+        .isIn(['USD', 'CDF'])
+        .withMessage('From currency must be USD or CDF'),
+    body('to_currency')
+        .isIn(['USD', 'CDF'])
+        .withMessage('To currency must be USD or CDF'),
+    body('rate')
+        .isFloat({ min: 0.0001 })
+        .withMessage('Rate must be a positive number'),
+    body('reason')
+        .optional()
+        .trim()
+        .isLength({ max: 200 })
+        .withMessage('Reason must be less than 200 characters')
+];
+
+const validateSpreadUpdate = [
+    body('spread_percentage')
+        .isFloat({ min: 0, max: 20 })
+        .withMessage('Spread percentage must be between 0 and 20')
+];
+
+const validateToggleLiveRates = [
+    body('enabled')
+        .isBoolean()
+        .withMessage('enabled field must be a boolean')
+];
 
 module.exports = {
-    handleValidationErrors,
+     handleValidationErrors,
     registerValidation,
     loginValidation,
-    updateProfileValidation
+    updateProfileValidation,
+    validateCustomRate,        
+    validateSpreadUpdate,      
+    validateToggleLiveRates 
 };

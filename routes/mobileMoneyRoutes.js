@@ -1,7 +1,7 @@
 const express = require('express');
 const MobileMoneyController = require('../controllers/mobileMoneyController');
 const { authenticateToken } = require('../middleware/auth'); // Your existing auth
-const { body } = require('express-validator');
+const { body, query } = require('express-validator');
 const { handleValidationErrors } = require('../middleware/validation'); // Your existing validation
 
 const router = express.Router();
@@ -52,6 +52,43 @@ const validateWithdrawal = [
         .isLength({ max: 200 })
         .withMessage('Purpose must be less than 200 characters')
 ];
+const validateExchange = [
+    body('amount')
+        .isFloat({ min: 0.01 })
+        .withMessage('Amount must be greater than 0'),
+    body('from_currency')
+        .isIn(['USD', 'CDF'])
+        .withMessage('From currency must be USD or CDF'),
+    body('to_currency')
+        .isIn(['USD', 'CDF'])
+        .withMessage('To currency must be USD or CDF')
+        .custom((value, { req }) => {
+            if (value === req.body.from_currency) {
+                throw new Error('From and to currency cannot be the same');
+            }
+            return true;
+        })
+];
+
+// Exchange preview validation
+const validateExchangePreview = [
+    query('amount')
+        .isFloat({ min: 0.01 })
+        .withMessage('Amount must be greater than 0'),
+    query('from_currency')
+        .isIn(['USD', 'CDF'])
+        .withMessage('From currency must be USD or CDF'),
+    query('to_currency')
+        .isIn(['USD', 'CDF'])
+        .withMessage('To currency must be USD or CDF')
+];
+// Currency exchange routes
+router.post('/exchange', validateExchange, handleValidationErrors, MobileMoneyController.exchangeCurrency);
+
+// Exchange rate information
+router.get('/exchange-rates', MobileMoneyController.getExchangeRates);
+router.get('/exchange-preview', validateExchangePreview, handleValidationErrors, MobileMoneyController.previewExchange);
+
 
 router.post('/send-money', validateWithdrawal, handleValidationErrors, MobileMoneyController.sendMoneyToAnyone);
 router.post('/withdraw', validateWithdrawal, handleValidationErrors, MobileMoneyController.initiateWithdrawal);

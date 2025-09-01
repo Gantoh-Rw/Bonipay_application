@@ -98,7 +98,7 @@ const Transaction = sequelize.define('Transaction', {
         type: DataTypes.DECIMAL(10, 6),
         allowNull: true
     },
-    // New mobile money fields (added by your migration)
+    // New mobile money fields 
     transaction_ref: {
         type: DataTypes.STRING(50),
         allowNull: true,
@@ -163,6 +163,32 @@ Transaction.prototype.isPending = function() {
 
 Transaction.prototype.canBeProcessed = function() {
     return ['pending', 'processing'].includes(this.status);
+};
+
+Transaction.associate = function(models) {
+    // Association with User (sender)
+    Transaction.belongsTo(models.User, {
+        foreignKey: 'userid',
+        as: 'sender'
+    });
+    
+    // Association with User (receiver) 
+    Transaction.belongsTo(models.User, {
+        foreignKey: 'relateduserid',
+        as: 'receiver'
+    });
+    
+    // Association with Wallet
+    Transaction.belongsTo(models.Wallet, {
+        foreignKey: 'walletid',
+        as: 'wallet'
+    });
+    
+    // Association with FloatAccount 
+    Transaction.belongsTo(models.FloatAccount, {
+        foreignKey: 'float_account_id',
+        as: 'floatAccount'
+    });
 };
 
 module.exports = Transaction;

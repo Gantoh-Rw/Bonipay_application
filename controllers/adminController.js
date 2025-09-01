@@ -9,7 +9,7 @@ const FloatAccount = require('../models/FloatAccount');
 const MpesaWebhook = require('../models/MpesaWebhook');
 const WalletMovement = require('../models/WalletMovement');
 const SystemConfig = require('../models/SystemConfig');
-
+const ExternalExchangeService = require('../services/ExternalExchangeService');
 
 const getMobileMoneyStats = async (req, res) => {
     try {
@@ -920,6 +920,380 @@ const getTransactionTrends = async (req, res) => {
     }
 };
 
+const updateExchangeRates = async (req, res) => {
+    try {
+        const result = await ExternalExchangeService.updateExchangeRates();
+
+        // Log admin action
+        console.log(`📊 Admin ${req.admin?.id || req.user?.id} manually updated exchange rates`);
+
+        res.status(200).json({
+            success: true,
+            message: 'Exchange rates updated successfully',
+            data: {
+                ...result,
+                updated_by: req.admin?.id || req.user?.id,
+                updated_at: new Date().toISOString()
+            }
+        });
+    } catch (error) {
+        console.error('❌ Exchange rate update failed:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+const setCustomExchangeRate = async (req, res) => {
+    try {
+        const { from_currency, to_currency, rate, reason } = req.body;
+        const adminUserId = req.admin?.id || req.user?.id;
+
+        if (!from_currency || !to_currency || !rate) {
+            return res.status(400).json({
+                success: false,
+                message: 'from_currency, to_currency, and rate are required'
+            });
+        }
+
+        if (!['USD', 'CDF'].includes(from_currency) || !['USD', 'CDF'].includes(to_currency)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Only USD and CDF currencies are supported'
+            });
+        }
+
+        if (parseFloat(rate) <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Rate must be a positive number'
+            });
+        }
+
+        const result = await ExternalExchangeService.setCustomRate(
+            from_currency, 
+            to_currency, 
+            parseFloat(rate), 
+            adminUserId
+        );
+
+        // Log admin action
+        console.log(`📝 Admin ${adminUserId} set custom rate: ${from_currency}→${to_currency} = ${rate}. Reason: ${reason || 'Not provided'}`);
+
+        res.status(200).json({
+            success: true,
+            message: 'Custom exchange rate set successfully',
+            data: {
+                ...result,
+                reason: reason || null
+            }
+        });
+    } catch (error) {
+        console.error('❌ Set custom rate failed:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+const getExchangeRatesAdmin = async (req, res) => {
+    try {
+        const rates = await ExternalExchangeService.getCurrentRatesWithSpread();
+        
+        // Add admin-specific information
+        const adminRates = {
+            ...rates,
+            admin_controls: {
+                live_rates_enabled: rates.live_rates_enabled,
+                current_spread: rates.USD_to_CDF.spread_percentage,
+                base_vs_customer_difference: {
+                    usd_to_cdf: (rates.USD_to_CDF.base_rate - rates.USD_to_CDF.customer_rate).toFixed(2),
+                    cdf_to_usd: (rates.CDF_to_USD.base_rate - rates.CDF_to_USD.customer_rate).toFixed(6)
+                },
+                profit_per_1000_usd: ((rates.USD_to_CDF.base_rate - rates.USD_to_CDF.customer_rate) * 1000).toFixed(2)
+            }
+        };
+        
+        res.status(200).json({
+            success: true,
+            data: adminRates
+        });
+    } catch (error) {
+        console.error('❌ Get admin rates failed:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+const toggleLiveRates = async (req, res) => {
+    try {
+        const { enabled } = req.body;
+        const adminUserId = req.admin?.id || req.user?.id;
+
+        if (typeof enabled !== 'boolean') {
+            return res.status(400).json({
+                success: false,
+                message: 'enabled field must be a boolean'
+            });
+        }
+
+        await SystemConfig.update(
+            { config_value: enabled ? 'true' : 'false' },
+            { where: { config_key: 'use_live_exchange_rates' } }
+        );
+
+        // Log admin action
+        console.log(`⚙️ Admin ${adminUserId} ${enabled ? 'enabled' : 'disabled'} live exchange rates`);
+
+        res.status(200).json({
+            success: true,
+            message: `Live rates ${enabled ? 'enabled' : 'disabled'} successfully`,
+            data: {
+                live_rates_enabled: enabled,
+                changed_by: adminUserId,
+                changed_at: new Date().toISOString()
+            }
+        });
+    } catch (error) {
+        console.error('❌ Toggle live rates failed:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+const updateSpreadPercentage = async (req, res) => {
+    try {
+        const { spread_percentage } = req.body;
+        const adminUserId = req.admin?.id || req.user?.id;
+
+        if (!spread_percentage || parseFloat(spread_percentage) < 0 || parseFloat(spread_percentage) > 20) {
+            return res.status(400).json({
+                success: false,
+                message: 'Spread percentage must be between 0 and 20'
+            });
+        }
+
+        // Get current spread for logging
+        const currentSpread = await SystemConfig.getValue('fx_spread_percentage', 2.0);
+
+        await SystemConfig.update(
+            { config_value: parseFloat(spread_percentage).toString() },
+            { where: { config_key: 'fx_spread_percentage' } }
+        );
+
+        // Log admin action
+        console.log(`💰 Admin ${adminUserId} updated spread: ${currentSpread}% → ${spread_percentage}%`);
+
+        res.status(200).json({
+            success: true,
+            message: 'Spread percentage updated successfully',
+            data: {
+                old_spread: currentSpread,
+                new_spread: parseFloat(spread_percentage),
+                updated_by: adminUserId
+            }
+        });
+    } catch (error) {
+        console.error('❌ Update spread failed:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// === EXCHANGE ANALYTICS FOR ADMIN ===
+
+const getExchangeAnalytics = async (req, res) => {
+    try {
+        const { period = 'daily', date_from, date_to } = req.query;
+        
+        const endDate = date_to ? new Date(date_to) : new Date();
+        const startDate = date_from ? new Date(date_from) : new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
+        
+        let dateFormat;
+        switch (period) {
+            case 'weekly':
+                dateFormat = 'YYYY-"W"WW';
+                break;
+            case 'monthly':
+                dateFormat = 'YYYY-MM';
+                break;
+            default:
+                dateFormat = 'YYYY-MM-DD';
+        }
+        
+        // Get exchange transaction analytics
+        const exchangeData = await sequelize.query(`
+            SELECT 
+                TO_CHAR(createdat, '${dateFormat}') as period,
+                fromcurrency,
+                tocurrency,
+                COUNT(*) as exchange_count,
+                SUM(amount) as total_amount_exchanged,
+                SUM(convertedamount) as total_converted_amount,
+                SUM(fees) as total_exchange_fees,
+                AVG(exchangerate) as avg_exchange_rate
+            FROM transactions 
+            WHERE type = 'fx_conversion' 
+            AND status = 'completed'
+            AND createdat >= :startDate 
+            AND createdat <= :endDate
+            GROUP BY TO_CHAR(createdat, '${dateFormat}'), fromcurrency, tocurrency
+            ORDER BY period DESC
+        `, {
+            type: sequelize.QueryTypes.SELECT,
+            replacements: { startDate, endDate }
+        });
+        
+        // Calculate totals
+        const totalExchangeFees = exchangeData.reduce((sum, row) => sum + parseFloat(row.total_exchange_fees || 0), 0);
+        const totalExchangeVolume = exchangeData.reduce((sum, row) => sum + parseFloat(row.total_amount_exchanged || 0), 0);
+        const totalExchanges = exchangeData.reduce((sum, row) => sum + parseInt(row.exchange_count || 0), 0);
+        
+        res.json({
+            success: true,
+            data: {
+                period_type: period,
+                date_range: { start: startDate, end: endDate },
+                summary: {
+                    total_exchanges: totalExchanges,
+                    total_volume: totalExchangeVolume.toFixed(2),
+                    total_fees: totalExchangeFees.toFixed(2),
+                    avg_fee_per_exchange: totalExchanges > 0 ? (totalExchangeFees / totalExchanges).toFixed(4) : 0,
+                    estimated_profit: (totalExchangeFees * 0.8).toFixed(2) // Assuming 80% of fees is profit
+                },
+                details: exchangeData
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching exchange analytics:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching exchange analytics'
+        });
+    }
+};
+
+const getExchangeRateHistory = async (req, res) => {
+    try {
+        const { currency_pair = 'USD_CDF', days = 30 } = req.query;
+        
+        const [fromCurrency, toCurrency] = currency_pair.split('_');
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - parseInt(days));
+        
+        const rateHistory = await sequelize.query(`
+            SELECT 
+                DATE(updatedat) as date,
+                AVG(rate) as avg_rate,
+                MIN(rate) as min_rate,
+                MAX(rate) as max_rate,
+                provider,
+                COUNT(*) as updates_count
+            FROM fx_rates 
+            WHERE sourcecurrency = :from_currency 
+            AND targetcurrency = :to_currency
+            AND updatedat >= :start_date
+            GROUP BY DATE(updatedat), provider
+            ORDER BY date DESC
+            LIMIT 100
+        `, {
+            type: sequelize.QueryTypes.SELECT,
+            replacements: {
+                from_currency: fromCurrency,
+                to_currency: toCurrency,
+                start_date: startDate
+            }
+        });
+        
+        res.json({
+            success: true,
+            data: {
+                currency_pair: currency_pair,
+                period_days: parseInt(days),
+                history: rateHistory
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching rate history:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching exchange rate history'
+        });
+    }
+};
+
+// === SYSTEM MONITORING FOR FX ===
+
+const getFxSystemHealth = async (req, res) => {
+    try {
+        // Check if rates are recent (within last hour)
+        const recentRates = await sequelize.query(`
+            SELECT sourcecurrency, targetcurrency, updatedat, provider
+            FROM fx_rates 
+            WHERE updatedat > NOW() - INTERVAL '1 hour'
+        `, {
+            type: sequelize.QueryTypes.SELECT
+        });
+        
+        // Check if live rates are enabled
+        const liveRatesEnabled = await SystemConfig.getValue('use_live_exchange_rates', true);
+        
+        // Get current spread
+        const currentSpread = await SystemConfig.getValue('fx_spread_percentage', 2.5);
+        
+        // Get failed exchange transactions in last 24 hours
+        const failedExchanges = await sequelize.query(`
+            SELECT COUNT(*) as failed_count
+            FROM transactions 
+            WHERE type = 'fx_conversion' 
+            AND status = 'failed'
+            AND createdat > NOW() - INTERVAL '24 hours'
+        `, {
+            type: sequelize.QueryTypes.SELECT
+        });
+        
+        const healthStatus = {
+            rates_current: recentRates.length > 0,
+            live_rates_enabled: liveRatesEnabled,
+            current_spread: currentSpread,
+            recent_rate_updates: recentRates.length,
+            failed_exchanges_24h: parseInt(failedExchanges[0]?.failed_count || 0),
+            overall_status: 'healthy'
+        };
+        
+        // Determine overall health
+        if (!healthStatus.rates_current && liveRatesEnabled) {
+            healthStatus.overall_status = 'warning';
+            healthStatus.issues = ['Exchange rates are stale'];
+        }
+        
+        if (healthStatus.failed_exchanges_24h > 10) {
+            healthStatus.overall_status = 'critical';
+            healthStatus.issues = healthStatus.issues || [];
+            healthStatus.issues.push('High number of failed exchanges');
+        }
+        
+        res.json({
+            success: true,
+            data: healthStatus
+        });
+    } catch (error) {
+        console.error('Error checking FX system health:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error checking FX system health'
+        });
+    }
+};
+
 // Real-time system health check
 const getSystemHealth = async (req, res) => {
     try {
@@ -1180,5 +1554,13 @@ module.exports = {
     getTransactionTrends,
     getSystemHealth,
     getUserWalletOverview,
-    bulkUpdateTransactionStatus
+    bulkUpdateTransactionStatus,
+    updateExchangeRates,
+    setCustomExchangeRate,
+    getExchangeRatesAdmin,
+    toggleLiveRates,
+    updateSpreadPercentage,
+    getExchangeAnalytics,
+    getExchangeRateHistory,
+    getFxSystemHealth  
 };

@@ -1,7 +1,8 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/config');
 
-const MpesaWebhook = sequelize.define('MpesaWebhook', {
+// Consider renaming this to WebhookLog for better generalization
+const WebhookLog = sequelize.define('WebhookLog', {
     id: {
         type: DataTypes.INTEGER,
         primaryKey: true,
@@ -11,8 +12,27 @@ const MpesaWebhook = sequelize.define('MpesaWebhook', {
         type: DataTypes.STRING(50),
         allowNull: false,
         validate: {
-            isIn: [['c2b_confirmation', 'b2c_result', 'balance_inquiry', 'timeout', 'reversal']]
+            isIn: [[
+                // M-Pesa types (keep for backward compatibility)
+                'c2b_confirmation', 'b2c_result', 'balance_inquiry', 'timeout', 'reversal',
+                // Flutterwave types
+                'flutterwave_callback', 'flutterwave_transfer', 'flutterwave_collection',
+                'vodacom_callback', 'vodacom_b2c_result'
+            ]]
         }
+    },
+    webhook_source: {
+        type: DataTypes.STRING(20),
+        allowNull: false,
+        defaultValue: 'mpesa',
+        validate: {
+            isIn: [['mpesa', 'flutterwave', 'vodacom', 'system']]
+        }
+    },
+    event_type: {
+        type: DataTypes.STRING(50),
+        allowNull: true,
+        comment: 'Specific event type from the webhook provider'
     },
     transaction_id: {
         type: DataTypes.INTEGER,
@@ -24,7 +44,13 @@ const MpesaWebhook = sequelize.define('MpesaWebhook', {
     },
     mpesa_transaction_id: {
         type: DataTypes.STRING(100),
-        allowNull: true
+        allowNull: true,
+        comment: 'Legacy M-Pesa transaction ID'
+    },
+    flutterwave_transaction_id: {
+        type: DataTypes.STRING(100),
+        allowNull: true,
+        comment: 'Flutterwave transaction ID'
     },
     raw_payload: {
         type: DataTypes.JSONB,
@@ -39,7 +65,7 @@ const MpesaWebhook = sequelize.define('MpesaWebhook', {
         allowNull: true
     },
     status: {
-        type: DataTypes.ENUM('received', 'processed', 'failed', 'duplicate'),
+        type: DataTypes.ENUM('received', 'processed', 'failed', 'duplicate', 'pending'),
         defaultValue: 'received'
     },
     processing_error: {
@@ -51,16 +77,25 @@ const MpesaWebhook = sequelize.define('MpesaWebhook', {
         defaultValue: 0
     }
 }, {
-    tableName: 'mpesa_webhooks',
+    tableName: 'webhook_logs', // Keep existing table name for now, or change to 'webhook_logs'
     timestamps: true,
     indexes: [
         {
             fields: ['mpesa_transaction_id']
         },
         {
+            fields: ['flutterwave_transaction_id']
+        },
+        {
             fields: ['status']
+        },
+        {
+            fields: ['webhook_source']
+        },
+        {
+            fields: ['event_type']
         }
     ]
 });
 
-module.exports = MpesaWebhook;
+module.exports = WebhookLog;

@@ -15,97 +15,129 @@ class WebhookController {
         );
     }
 
-    // Handle C2B confirmation
-    static async handleC2BConfirmation(req, res) {
-        try {
-            const webhookData = req.body;
-            console.log('C2B Webhook received:', webhookData);
-            
-            // Verify webhook signature (if enabled)
-            const signature = req.headers['x-signature'];
-            if (signature && process.env.WEBHOOK_SECRET) {
-                if (!this.verifyWebhookSignature(JSON.stringify(webhookData), signature)) {
-                    return res.status(401).json({
-                        ResultCode: 1,
-                        ResultDesc: 'Invalid signature'
-                    });
-                }
-            }
-            
-            // Process webhook
-            const result = await MobileMoneyService.processC2BWebhook(webhookData);
-            
-            if (result.success) {
-                res.status(200).json({
-                    ResultCode: 0,
-                    ResultDesc: 'Accepted'
-                });
-            } else {
-                res.status(200).json({
-                    ResultCode: 1,
-                    ResultDesc: result.error || 'Processing failed'
-                });
-            }
-        } catch (error) {
-            console.error('C2B webhook processing failed:', error);
-            
-            res.status(200).json({
-                ResultCode: 1,
-                ResultDesc: 'Processing failed'
-            });
-        }
-    }
-    
-    static async simulateB2CCompletion(req, res) {
+    static async handleFlutterwaveCallback(req, res) {
     try {
-        const { transaction_ref, mpesa_transaction_id } = req.body;
+        const callbackData = req.body;
+        console.log('📱 Flutterwave Callback received:', JSON.stringify(callbackData, null, 2));
         
-        if (!transaction_ref) {
-            return res.status(400).json({
-                success: false,
-                message: 'transaction_ref is required'
+        // Verify webhook signature (if enabled)
+        const signature = req.headers['verif-hash'];
+        if (signature && process.env.FLUTTERWAVE_SECRET_HASH) {
+            const hash = crypto
+                .createHash('sha256')
+                .update(JSON.stringify(callbackData) + process.env.FLUTTERWAVE_SECRET_HASH)
+                .digest('hex');
+                
+            if (signature !== hash) {
+                console.log('❌ Invalid webhook signature');
+                return res.status(401).json({
+                    status: 'error',
+                    message: 'Invalid signature'
+                });
+            }
+        }
+        
+        // Process Flutterwave callback
+        const result = await MobileMoneyService.processFlutterwaveCallback(callbackData);
+        
+        if (result.success) {
+            console.log('✅ Flutterwave callback processed successfully');
+            res.status(200).json({
+                status: 'success',
+                message: 'Webhook processed successfully'
+            });
+        } else {
+            console.log('⚠️ Flutterwave callback processing failed:', result.error);
+            res.status(200).json({
+                status: 'error',
+                message: result.error || 'Processing failed'
             });
         }
-
-        const result = await MobileMoneyService.processB2CCompletion({
-            transaction_ref: transaction_ref,
-            mpesa_transaction_id: mpesa_transaction_id || `SIM${Date.now()}`
-        });
-
-        res.status(200).json({
-            success: true,
-            message: 'B2C withdrawal completed',
-            data: result
-        });
     } catch (error) {
-        console.error('B2C completion failed:', error);
-        res.status(500).json({
-            success: false,
-            message: error.message
+        console.error('❌ Flutterwave callback processing failed:', error);
+        
+        res.status(200).json({
+            status: 'error',
+            message: 'Processing failed'
         });
     }
 }
-
-    // Handle timeout
-    static async handleTimeout(req, res) {
-        try {
-            const webhookData = req.body;
-            console.log('Timeout received:', webhookData);
-            
-            // Log timeout - you might want to mark transaction as failed
-            
+    // Generic webhook handler for future providers
+static async handleGenericWebhook(req, res) {
+    try {
+        const webhookData = req.body;
+        const provider = req.query.provider || 'unknown';
+        
+        console.log(`📡 Generic webhook received from ${provider}:`, webhookData);
+        
+        // Log the webhook for debugging
+        await MpesaWebhook.create({
+            webhook_type: 'generic_webhook',
+            webhook_source: provider,
+            raw_payload: webhookData,
+            status: 'received'
+        });
+        
+        res.status(200).json({
+            status: 'success',
+            message: 'Webhook received and logged'
+        });
+        
+    } catch (error) {
+        console.error('Generic webhook error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Webhook processing failed'
+        });
+    }
+}
+    static async handleFlutterwaveTransferCallback(req, res) {
+    try {
+        const callbackData = req.body;
+        console.log('💸 Flutterwave Transfer Callback received:', JSON.stringify(callbackData, null, 2));
+        
+        // Verify webhook signature (if enabled)
+        const signature = req.headers['verif-hash'];
+        if (signature && process.env.FLUTTERWAVE_SECRET_HASH) {
+            const hash = crypto
+                .createHash('sha256')
+                .update(JSON.stringify(callbackData) + process.env.FLUTTERWAVE_SECRET_HASH)
+                .digest('hex');
+                
+            if (signature !== hash) {
+                console.log('❌ Invalid webhook signature');
+                return res.status(401).json({
+                    status: 'error',
+                    message: 'Invalid signature'
+                });
+            }
+        }
+        
+        // Process transfer callback
+        const result = await MobileMoneyService.processFlutterwaveTransferCallback(callbackData);
+        
+        if (result.success) {
+            console.log('✅ Flutterwave transfer callback processed successfully');
             res.status(200).json({
-                ResultCode: 0,
-                ResultDesc: 'Timeout logged'
+                status: 'success',
+                message: 'Transfer webhook processed successfully'
             });
-        } catch (error) {
-            console.error('Timeout handling failed:', error);
+        } else {
+            console.log('⚠️ Flutterwave transfer callback processing failed:', result.error);
             res.status(200).json({
-                ResultCode: 1,
-                ResultDesc: 'Timeout processing failed'
+                status: 'error',
+                message: result.error || 'Processing failed'
             });
         }
+    } catch (error) {
+        console.error('❌ Flutterwave transfer callback processing failed:', error);
+        
+        res.status(200).json({
+            status: 'error',
+            message: 'Processing failed'
+        });
     }
+  }
 }
 
 module.exports = WebhookController;

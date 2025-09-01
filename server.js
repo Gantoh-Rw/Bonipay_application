@@ -57,10 +57,10 @@ app.use('/api/webhooks', webhookRoutes);
 // Health check
 app.get('/', (req, res) => {
     res.json({
-        message: 'Money Transfer API with Mobile Money is running!',
-        version: '2.0.0',
+        message: 'Money Transfer API with Flutterwave Mobile Money is running!',
+        version: '1.0.0',
         timestamp: new Date().toISOString(),
-        features: ['Mobile Money', 'M-Pesa Integration', 'Webhooks']
+        features: ['Mobile Money', 'Flutterwave Integration', 'Webhooks']
     });
 });
 

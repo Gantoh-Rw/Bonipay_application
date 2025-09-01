@@ -21,6 +21,12 @@ const {
   getUserWalletOverview,
   bulkUpdateTransactionStatus
 } = require('../controllers/adminController');
+const { 
+    validateCustomRate,
+    validateSpreadUpdate,
+    validateToggleLiveRates
+} = require('../middleware/validation');
+const adminController = require('../controllers/adminController');
 const authController = require('../controllers/authController');
 const { authenticateAdmin } = require('../middleware/adminAuth');
 const { body, query, param } = require('express-validator');
@@ -170,5 +176,18 @@ router.get('/analytics/transaction-trends', [
 
 // System Health Route
 router.get('/system/health', getSystemHealth);
+// Exchange rate management routes
+router.post('/exchange-rates/update', adminController.updateExchangeRates);
+router.post('/exchange-rates/set-custom', validateCustomRate, handleValidationErrors, adminController.setCustomExchangeRate);
+router.get('/exchange-rates', adminController.getExchangeRatesAdmin);
+router.post('/exchange-rates/toggle-live', validateToggleLiveRates, handleValidationErrors, adminController.toggleLiveRates);
+router.post('/exchange-rates/update-spread', validateSpreadUpdate, handleValidationErrors, adminController.updateSpreadPercentage);
+
+// FX analytics routes
+router.get('/analytics/exchange', adminController.getExchangeAnalytics);
+router.get('/analytics/exchange-rates/history', adminController.getExchangeRateHistory);
+
+// FX system monitoring
+router.get('/system/fx-health', adminController.getFxSystemHealth);
 
 module.exports = router;

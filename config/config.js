@@ -1,6 +1,8 @@
 require('dotenv').config();
 const { Sequelize } = require('sequelize');
 
+const FLUTTERWAVE_SECRET_HASH = process.env.FLUTTERWAVE_SECRET_HASH;
+const FLUTTERWAVE_CALLBACK_URL = process.env.FLUTTERWAVE_CALLBACK_URL;
 // Configuration object for Sequelize CLI
 const config = {
   development: {
