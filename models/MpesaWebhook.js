@@ -1,8 +1,17 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/config');
 
-// Consider renaming this to WebhookLog for better generalization
-const WebhookLog = sequelize.define('WebhookLog', {
+/**
+ * MpesaWebhook model
+ *
+ * Maps to the `webhook_logs` table in the database.
+ * The DB status column is a Postgres ENUM: enum_mpesa_webhooks_status
+ *
+ * IMPORTANT: only write status values that exist in that enum.
+ * Safe confirmed values: 'received', 'processed', 'failed'
+ * Risky value:           'unmatched' — see note in processC2BCallback / processB2CCallback
+ */
+const MpesaWebhook = sequelize.define('MpesaWebhook', {
     id: {
         type: DataTypes.INTEGER,
         primaryKey: true,
@@ -10,29 +19,7 @@ const WebhookLog = sequelize.define('WebhookLog', {
     },
     webhook_type: {
         type: DataTypes.STRING(50),
-        allowNull: false,
-        validate: {
-            isIn: [[
-                // M-Pesa types (keep for backward compatibility)
-                'c2b_confirmation', 'b2c_result', 'balance_inquiry', 'timeout', 'reversal',
-                // Flutterwave types
-                'flutterwave_callback', 'flutterwave_transfer', 'flutterwave_collection',
-                'vodacom_callback', 'vodacom_b2c_result'
-            ]]
-        }
-    },
-    webhook_source: {
-        type: DataTypes.STRING(20),
-        allowNull: false,
-        defaultValue: 'mpesa',
-        validate: {
-            isIn: [['mpesa', 'flutterwave', 'vodacom', 'system']]
-        }
-    },
-    event_type: {
-        type: DataTypes.STRING(50),
-        allowNull: true,
-        comment: 'Specific event type from the webhook provider'
+        allowNull: false
     },
     transaction_id: {
         type: DataTypes.INTEGER,
@@ -44,13 +31,7 @@ const WebhookLog = sequelize.define('WebhookLog', {
     },
     mpesa_transaction_id: {
         type: DataTypes.STRING(100),
-        allowNull: true,
-        comment: 'Legacy M-Pesa transaction ID'
-    },
-    flutterwave_transaction_id: {
-        type: DataTypes.STRING(100),
-        allowNull: true,
-        comment: 'Flutterwave transaction ID'
+        allowNull: true
     },
     raw_payload: {
         type: DataTypes.JSONB,
@@ -64,8 +45,9 @@ const WebhookLog = sequelize.define('WebhookLog', {
         type: DataTypes.DATE,
         allowNull: true
     },
+    
     status: {
-        type: DataTypes.ENUM('received', 'processed', 'failed', 'duplicate', 'pending'),
+        type: DataTypes.STRING,
         defaultValue: 'received'
     },
     processing_error: {
@@ -75,27 +57,23 @@ const WebhookLog = sequelize.define('WebhookLog', {
     retry_count: {
         type: DataTypes.INTEGER,
         defaultValue: 0
+    },
+    // Kept for DB compatibility — not written by our Vodacom DRC code
+    flutterwave_transaction_id: {
+        type: DataTypes.STRING(100),
+        allowNull: true
+    },
+    webhook_source: {
+        type: DataTypes.STRING(20),
+        defaultValue: 'vodacom_drc'
+    },
+    event_type: {
+        type: DataTypes.STRING(50),
+        allowNull: true
     }
 }, {
-    tableName: 'webhook_logs', // Keep existing table name for now, or change to 'webhook_logs'
-    timestamps: true,
-    indexes: [
-        {
-            fields: ['mpesa_transaction_id']
-        },
-        {
-            fields: ['flutterwave_transaction_id']
-        },
-        {
-            fields: ['status']
-        },
-        {
-            fields: ['webhook_source']
-        },
-        {
-            fields: ['event_type']
-        }
-    ]
+    tableName: 'webhook_logs',   // ← must match actual DB table name
+    timestamps: true             // uses default "createdAt" / "updatedAt" (camelCase) — matches DB
 });
 
-module.exports = WebhookLog;
+module.exports = MpesaWebhook;

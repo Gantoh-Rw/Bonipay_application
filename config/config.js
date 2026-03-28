@@ -1,83 +1,48 @@
 require('dotenv').config();
 const { Sequelize } = require('sequelize');
 
-const FLUTTERWAVE_SECRET_HASH = process.env.FLUTTERWAVE_SECRET_HASH;
-const FLUTTERWAVE_CALLBACK_URL = process.env.FLUTTERWAVE_CALLBACK_URL;
-// Configuration object for Sequelize CLI
+// ── Sequelize CLI config (used by `sequelize-cli db:migrate` etc.) ─────────────
 const config = {
-  development: {
-    use_env_variable: 'DATABASE_URL',
-    dialect: 'postgres',
-    dialectOptions: {
-      ssl: {
-        require: true,
-        rejectUnauthorized: false // Important for Supabase
-      }
+    development: {
+        use_env_variable: 'DATABASE_URL',
+        dialect: 'postgres',
+        dialectOptions: {
+            ssl: { require: true, rejectUnauthorized: false }
+        },
+        logging: console.log,
+        pool: { max: 5, min: 0, acquire: 30000, idle: 10000 }
     },
-    logging: process.env.NODE_ENV === 'development' ? console.log : false,
-    pool: {
-      max: 5,
-      min: 0,
-      acquire: 30000,
-      idle: 10000
-    }
-  },
-  test: {
-    use_env_variable: 'DATABASE_URL',
-    dialect: 'postgres',
-    dialectOptions: {
-      ssl: {
-        require: true,
-        rejectUnauthorized: false
-      }
+    test: {
+        use_env_variable: 'DATABASE_URL',
+        dialect: 'postgres',
+        dialectOptions: {
+            ssl: { require: true, rejectUnauthorized: false }
+        },
+        logging: false,
+        pool: { max: 5, min: 0, acquire: 30000, idle: 10000 }
     },
-    logging: false,
-    pool: {
-      max: 5,
-      min: 0,
-      acquire: 30000,
-      idle: 10000
+    production: {
+        use_env_variable: 'DATABASE_URL',
+        dialect: 'postgres',
+        dialectOptions: {
+            ssl: { require: true, rejectUnauthorized: false }
+        },
+        logging: false,
+        pool: { max: 5, min: 0, acquire: 30000, idle: 10000 }
     }
-  },
-  production: {
-    use_env_variable: 'DATABASE_URL',
-    dialect: 'postgres',
-    dialectOptions: {
-      ssl: {
-        require: true,
-        rejectUnauthorized: false
-      }
-    },
-    logging: false,
-    pool: {
-      max: 5,
-      min: 0,
-      acquire: 30000,
-      idle: 10000
-    }
-  }
 };
 
-// Create Sequelize instance for your app (same as before)
+// ── Runtime Sequelize instance (used by models and services) ───────────────────
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
     dialect: 'postgres',
     dialectOptions: {
-        ssl: {
-            require: true,
-            rejectUnauthorized: false // This is important for Supabase
-        }
+        ssl: { require: true, rejectUnauthorized: false }
     },
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
-    pool: {
-        max: 5,
-        min: 0,
-        acquire: 30000,
-        idle: 10000
-    }
+    pool: { max: 5, min: 0, acquire: 30000, idle: 10000 }
 });
 
-// Export config for Sequelize CLI
+// Export both so `require('../config/config')` works for the CLI
+// and `const { sequelize } = require('../config/config')` works everywhere else
 module.exports = config;
-
-// Export sequelize instance for your app
 module.exports.sequelize = sequelize;

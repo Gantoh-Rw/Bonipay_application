@@ -1,267 +1,371 @@
 const axios = require('axios');
-const crypto = require('crypto');
 
+/**
+ * Vodacom DRC M-Pesa Service
+ * Handles C2B (deposit) and B2C (withdrawal/send-money) flows
+ * for Vodacom Democratic Republic of Congo.
+ *
+ * Country code : +243
+ * Sandbox base : https://openapi.m-pesa.com/sandbox/ipg/v2/vodacomDRC/
+ *
+ * When MPESA_SIMULATION=true the class returns realistic fake responses
+ * so the full money-flow can be exercised without live credentials.
+ */
 class VodacomMpesaService {
     constructor() {
-        this.apiKey = process.env.VODACOM_MPESA_API_KEY;
-        this.publicKey = process.env.VODACOM_MPESA_PUBLIC_KEY;
-        this.serviceProviderCode = process.env.VODACOM_MPESA_SERVICE_PROVIDER_CODE;
-        this.initiatorIdentifier = process.env.VODACOM_MPESA_INITIATOR_IDENTIFIER;
-        this.securityCredential = process.env.VODACOM_MPESA_SECURITY_CREDENTIAL;
-        this.environment = process.env.MPESA_ENVIRONMENT || 'sandbox';
-        this.callbackUrl = process.env.VODACOM_CALLBACK_URL;
-        
-        // API endpoints
-        this.baseUrl = this.environment === 'production' 
-            ? 'https://openapi.m-pesa.com'
-            : 'https://openapi.m-pesa.com'; // Same URL for sandbox
-            
-        this.sessionTimeout = 30 * 60 * 1000; // 30 minutes
-        this.sessionToken = null;
+        this.apiKey                = process.env.VODACOM_MPESA_API_KEY;
+        this.publicKey             = process.env.VODACOM_MPESA_PUBLIC_KEY;
+        this.serviceProviderCode   = process.env.VODACOM_MPESA_SERVICE_PROVIDER_CODE || 'SP001';
+        this.initiatorIdentifier   = process.env.VODACOM_MPESA_INITIATOR_IDENTIFIER;
+        this.securityCredential    = process.env.VODACOM_MPESA_SECURITY_CREDENTIAL;
+        this.environment           = process.env.MPESA_ENVIRONMENT || 'sandbox';
+        this.callbackUrl           = process.env.VODACOM_CALLBACK_URL;
+        this.simulationMode        = process.env.MPESA_SIMULATION === 'true';
+
+        // Vodacom DRC sandbox base URL
+        this.baseUrl = 'https://openapi.m-pesa.com';
+        this.apiPath = `/sandbox/ipg/v2/vodacomDRC`;
+
+        // Session cache
+        this.sessionToken  = null;
         this.sessionExpiry = null;
+        this.SESSION_TTL   = 25 * 60 * 1000; // 25 min (token valid 30 min)
     }
 
-    // Generate session token
+    // ─────────────────────────────────────────────
+    // INTERNAL HELPERS
+    // ─────────────────────────────────────────────
+
+    /**
+     * Normalise a phone number to the DRC E.164 format 243XXXXXXXXX
+     */
+    _normalisePhone(raw) {
+        // Strip everything except digits
+        let digits = String(raw).replace(/\D/g, '');
+
+        // Remove leading + if present (already stripped above)
+        // Handle 00243..., +243..., 243..., 0...
+        if (digits.startsWith('00243')) digits = digits.slice(5);
+        else if (digits.startsWith('243'))  digits = digits.slice(3);
+        else if (digits.startsWith('0'))    digits = digits.slice(1);
+
+        return `243${digits}`;
+    }
+
+    _generateSimRef(prefix = 'SIM') {
+        return `${prefix}${Date.now()}${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+    }
+
+    // ─────────────────────────────────────────────
+    // SESSION TOKEN
+    // ─────────────────────────────────────────────
+
     async getSessionToken() {
-        try {
-            // Check if we have a valid token
-            if (this.sessionToken && this.sessionExpiry && Date.now() < this.sessionExpiry) {
-                return this.sessionToken;
-            }
+        if (this.simulationMode) {
+            return 'SIM_SESSION_TOKEN';
+        }
 
-            console.log('🔐 Getting new Vodacom M-Pesa session token...');
+        // Return cached token if still valid
+        if (this.sessionToken && this.sessionExpiry && Date.now() < this.sessionExpiry) {
+            return this.sessionToken;
+        }
 
-            const response = await axios.get(`${this.baseUrl}/sandbox/ipg/v2/vodacomTZN/getSession/`, {
+        console.log('🔐 Fetching new Vodacom DRC M-Pesa session token…');
+
+        const response = await axios.get(
+            `${this.baseUrl}${this.apiPath}/getSession/`,
+            {
                 headers: {
-                    'Authorization': `Bearer ${this.apiKey}`,
+                    Authorization: `Bearer ${this.apiKey}`,
                     'Content-Type': 'application/json'
                 }
-            });
-
-            if (response.data && response.data.output_SessionID) {
-                this.sessionToken = response.data.output_SessionID;
-                this.sessionExpiry = Date.now() + this.sessionTimeout;
-                
-                console.log('✅ Session token obtained successfully');
-                return this.sessionToken;
-            } else {
-                throw new Error('Failed to get session token from Vodacom');
             }
+        );
 
-        } catch (error) {
-            console.error('❌ Session token error:', error.response?.data || error.message);
-            throw new Error(`Session token failed: ${error.message}`);
+        if (!response.data?.output_SessionID) {
+            throw new Error('Vodacom did not return a session token');
         }
+
+        this.sessionToken  = response.data.output_SessionID;
+        this.sessionExpiry = Date.now() + this.SESSION_TTL;
+        console.log('✅ Session token obtained');
+        return this.sessionToken;
     }
 
-    // Encrypt security credential
-    encryptSecurityCredential(credential) {
-        try {
-            // For sandbox, you might not need encryption
-            // In production, use the public key to encrypt
-            return Buffer.from(credential).toString('base64');
-        } catch (error) {
-            throw new Error(`Encryption failed: ${error.message}`);
-        }
-    }
+    // ─────────────────────────────────────────────
+    // C2B  –  Customer → Business  (DEPOSIT)
+    // ─────────────────────────────────────────────
 
-    // Test connection
-    async testConnection() {
-        try {
-            const sessionToken = await this.getSessionToken();
-            
-            return {
-                success: true,
-                message: 'Connection successful',
-                environment: this.environment,
-                session_token: sessionToken ? 'Valid' : 'Invalid'
-            };
-        } catch (error) {
-            return {
-                success: false,
-                message: 'Connection failed',
-                environment: this.environment,
-                error: error.message
-            };
+    /**
+     * @param {string} phoneNumber   - Customer's DRC mobile number
+     * @param {number} amount        - Amount to collect
+     * @param {string} currency      - 'USD' or 'CDF'
+     * @param {string} transactionRef - Unique reference generated by our system
+     * @param {string} description   - Short description shown to customer
+     */
+    async initiateC2BPayment(phoneNumber, amount, currency, transactionRef, description) {
+        if (this.simulationMode) {
+            return this._simulateC2B(phoneNumber, amount, currency, transactionRef);
         }
-    }
 
-    // Initiate C2B payment (Customer to Business)
-    async initiateC2BPayment(phoneNumber, amount, currency, thirdPartyReference, description) {
         try {
-            console.log(`📱 Initiating C2B payment: ${amount} ${currency} from ${phoneNumber}`);
+            console.log(`📱 C2B deposit: ${amount} ${currency} from ${phoneNumber}`);
 
             const sessionToken = await this.getSessionToken();
-            
-            // Clean phone number (remove + and country code if present)
-            const cleanPhone = phoneNumber.replace(/^\+?243/, '').replace(/\D/g, '');
-            
+            const msisdn       = this._normalisePhone(phoneNumber);
+
             const payload = {
-                input_ServiceProviderCode: this.serviceProviderCode,
-                input_CustomerMSISDN: `243${cleanPhone}`, // Add country code
-                input_Amount: parseFloat(amount),
-                input_ThirdPartyReference: thirdPartyReference,
-                input_TransactionReference: thirdPartyReference,
-                input_PurchasedItemsDesc: description || `Deposit ${amount} ${currency}`
+                input_ServiceProviderCode:  this.serviceProviderCode,
+                input_CustomerMSISDN:       msisdn,
+                input_Amount:               parseFloat(amount),
+                input_ThirdPartyReference:  transactionRef,
+                input_TransactionReference: transactionRef,
+                input_PurchasedItemsDesc:   description || `Deposit ${amount} ${currency}`
             };
 
-            console.log('📤 C2B Request payload:', JSON.stringify(payload, null, 2));
+            console.log('📤 C2B payload:', JSON.stringify(payload, null, 2));
 
             const response = await axios.post(
-                `${this.baseUrl}/sandbox/ipg/v2/vodacomTZN/c2bPayment/singleStage/`,
+                `${this.baseUrl}${this.apiPath}/c2bPayment/singleStage/`,
                 payload,
                 {
                     headers: {
-                        'Authorization': `Bearer ${sessionToken}`,
+                        Authorization: `Bearer ${sessionToken}`,
                         'Content-Type': 'application/json'
                     }
                 }
             );
 
-            console.log('📥 C2B Response:', JSON.stringify(response.data, null, 2));
+            console.log('📥 C2B response:', JSON.stringify(response.data, null, 2));
 
-            if (response.data && response.data.output_ResponseCode === 'INS-0') {
+            if (response.data?.output_ResponseCode === 'INS-0') {
                 return {
-                    success: true,
-                    transactionID: response.data.output_TransactionID,
-                    conversationID: response.data.output_ConversationID,
-                    thirdPartyReference: thirdPartyReference,
+                    success:             true,
+                    transactionID:       response.data.output_TransactionID,
+                    conversationID:      response.data.output_ConversationID,
+                    thirdPartyReference: transactionRef,
                     responseDescription: response.data.output_ResponseDesc || 'Payment initiated'
                 };
-            } else {
-                return {
-                    success: false,
-                    responseCode: response.data?.output_ResponseCode || 'UNKNOWN',
-                    responseDescription: response.data?.output_ResponseDesc || 'Payment failed'
-                };
             }
 
-        } catch (error) {
-            console.error('❌ C2B Payment error:', error.response?.data || error.message);
-            
             return {
-                success: false,
-                responseCode: 'API_ERROR',
+                success:             false,
+                responseCode:        response.data?.output_ResponseCode || 'UNKNOWN',
+                responseDescription: response.data?.output_ResponseDesc  || 'Payment failed'
+            };
+
+        } catch (error) {
+            console.error('❌ C2B error:', error.response?.data || error.message);
+            return {
+                success:             false,
+                responseCode:        'API_ERROR',
                 responseDescription: error.response?.data?.output_ResponseDesc || error.message
             };
         }
     }
 
-    // Initiate B2C payment (Business to Customer) 
-    async initiateB2CPayment(phoneNumber, amount, currency, thirdPartyReference, description) {
+    // ─────────────────────────────────────────────
+    // B2C  –  Business → Customer  (WITHDRAWAL / SEND MONEY)
+    // ─────────────────────────────────────────────
+
+    /**
+     * @param {string} phoneNumber   - Recipient's DRC mobile number
+     * @param {number} amount        - Amount to send
+     * @param {string} currency      - 'USD' or 'CDF'
+     * @param {string} transactionRef - Unique reference generated by our system
+     * @param {string} description   - Short description
+     */
+    async initiateB2CPayment(phoneNumber, amount, currency, transactionRef, description) {
+        if (this.simulationMode) {
+            return this._simulateB2C(phoneNumber, amount, currency, transactionRef);
+        }
+
         try {
-            console.log(`💸 Initiating B2C payment: ${amount} ${currency} to ${phoneNumber}`);
+            console.log(`💸 B2C payment: ${amount} ${currency} to ${phoneNumber}`);
 
             const sessionToken = await this.getSessionToken();
-            
-            // Clean phone number
-            const cleanPhone = phoneNumber.replace(/^\+?243/, '').replace(/\D/g, '');
-            
+            const msisdn       = this._normalisePhone(phoneNumber);
+
             const payload = {
-                input_ServiceProviderCode: this.serviceProviderCode,
-                input_CustomerMSISDN: `243${cleanPhone}`,
-                input_Amount: parseFloat(amount),
-                input_ThirdPartyReference: thirdPartyReference,
-                input_TransactionReference: thirdPartyReference,
-                input_PaymentItemsDesc: description || `Withdrawal ${amount} ${currency}`
+                input_ServiceProviderCode:  this.serviceProviderCode,
+                input_CustomerMSISDN:       msisdn,
+                input_Amount:               parseFloat(amount),
+                input_ThirdPartyReference:  transactionRef,
+                input_TransactionReference: transactionRef,
+                input_PaymentItemsDesc:     description || `Payment ${amount} ${currency}`
             };
 
-            console.log('📤 B2C Request payload:', JSON.stringify(payload, null, 2));
+            console.log('📤 B2C payload:', JSON.stringify(payload, null, 2));
 
             const response = await axios.post(
-                `${this.baseUrl}/sandbox/ipg/v2/vodacomTZN/b2cPayment/`,
+                `${this.baseUrl}${this.apiPath}/b2cPayment/`,
                 payload,
                 {
                     headers: {
-                        'Authorization': `Bearer ${sessionToken}`,
+                        Authorization: `Bearer ${sessionToken}`,
                         'Content-Type': 'application/json'
                     }
                 }
             );
 
-            console.log('📥 B2C Response:', JSON.stringify(response.data, null, 2));
+            console.log('📥 B2C response:', JSON.stringify(response.data, null, 2));
 
-            if (response.data && response.data.output_ResponseCode === 'INS-0') {
+            if (response.data?.output_ResponseCode === 'INS-0') {
                 return {
-                    success: true,
-                    transactionID: response.data.output_TransactionID,
-                    conversationID: response.data.output_ConversationID,
-                    thirdPartyReference: thirdPartyReference,
+                    success:             true,
+                    transactionID:       response.data.output_TransactionID,
+                    conversationID:      response.data.output_ConversationID,
+                    thirdPartyReference: transactionRef,
                     responseDescription: response.data.output_ResponseDesc || 'Payment sent'
-                };
-            } else {
-                return {
-                    success: false,
-                    responseCode: response.data?.output_ResponseCode || 'UNKNOWN',
-                    responseDescription: response.data?.output_ResponseDesc || 'Payment failed'
                 };
             }
 
-        } catch (error) {
-            console.error('❌ B2C Payment error:', error.response?.data || error.message);
-            
             return {
-                success: false,
-                responseCode: 'API_ERROR',
+                success:             false,
+                responseCode:        response.data?.output_ResponseCode || 'UNKNOWN',
+                responseDescription: response.data?.output_ResponseDesc  || 'Payment failed'
+            };
+
+        } catch (error) {
+            console.error('❌ B2C error:', error.response?.data || error.message);
+            return {
+                success:             false,
+                responseCode:        'API_ERROR',
                 responseDescription: error.response?.data?.output_ResponseDesc || error.message
             };
         }
     }
 
-    // Query transaction status
+    // ─────────────────────────────────────────────
+    // QUERY TRANSACTION STATUS
+    // ─────────────────────────────────────────────
+
     async queryTransactionStatus(transactionID, thirdPartyReference) {
+        if (this.simulationMode) {
+            return {
+                success:             true,
+                transactionStatus:   'Completed',
+                responseCode:        'INS-0',
+                responseDescription: '[SIMULATION] Transaction completed successfully'
+            };
+        }
+
         try {
             console.log(`🔍 Querying transaction status: ${transactionID}`);
 
             const sessionToken = await this.getSessionToken();
-            
+
             const payload = {
                 input_ServiceProviderCode: this.serviceProviderCode,
                 input_ThirdPartyReference: thirdPartyReference,
-                input_QueryReference: transactionID
+                input_QueryReference:      transactionID
             };
 
             const response = await axios.post(
-                `${this.baseUrl}/sandbox/ipg/v2/vodacomTZN/queryTransactionStatus/`,
+                `${this.baseUrl}${this.apiPath}/queryTransactionStatus/`,
                 payload,
                 {
                     headers: {
-                        'Authorization': `Bearer ${sessionToken}`,
+                        Authorization: `Bearer ${sessionToken}`,
                         'Content-Type': 'application/json'
                     }
                 }
             );
 
             return {
-                success: true,
-                transactionStatus: response.data?.output_ResponseDesc || 'Unknown',
-                responseCode: response.data?.output_ResponseCode || 'UNKNOWN',
-                responseDescription: response.data?.output_ResponseDesc || 'Status retrieved'
+                success:             true,
+                transactionStatus:   response.data?.output_ResponseDesc || 'Unknown',
+                responseCode:        response.data?.output_ResponseCode  || 'UNKNOWN',
+                responseDescription: response.data?.output_ResponseDesc  || 'Status retrieved'
             };
 
         } catch (error) {
-            console.error('❌ Transaction status query error:', error.response?.data || error.message);
-            
+            console.error('❌ Status query error:', error.response?.data || error.message);
             return {
-                success: false,
-                responseCode: 'API_ERROR',
+                success:             false,
+                responseCode:        'API_ERROR',
                 responseDescription: error.message
             };
         }
     }
 
-    // Validate configuration
+    // ─────────────────────────────────────────────
+    // TEST CONNECTION
+    // ─────────────────────────────────────────────
+
+    async testConnection() {
+        try {
+            const token = await this.getSessionToken();
+            return {
+                success:      true,
+                message:      this.simulationMode ? 'Simulation mode active' : 'Connected to Vodacom DRC sandbox',
+                environment:  this.environment,
+                simulation:   this.simulationMode,
+                sessionToken: token ? 'Valid' : 'Invalid'
+            };
+        } catch (error) {
+            return {
+                success:     false,
+                message:     'Connection failed',
+                environment: this.environment,
+                simulation:  this.simulationMode,
+                error:       error.message
+            };
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    // SIMULATION HELPERS  (MPESA_SIMULATION=true)
+    // ─────────────────────────────────────────────
+
+    _simulateC2B(phoneNumber, amount, currency, transactionRef) {
+        const msisdn = this._normalisePhone(phoneNumber);
+        const txID   = this._generateSimRef('C2B');
+
+        console.log(`🧪 [SIMULATION] C2B deposit: ${amount} ${currency} from ${msisdn} | ref: ${transactionRef}`);
+
+        return {
+            success:             true,
+            transactionID:       txID,
+            conversationID:      this._generateSimRef('CONV'),
+            thirdPartyReference: transactionRef,
+            responseDescription: '[SIMULATION] C2B payment initiated – awaiting callback',
+            simulated:           true
+        };
+    }
+
+    _simulateB2C(phoneNumber, amount, currency, transactionRef) {
+        const msisdn = this._normalisePhone(phoneNumber);
+        const txID   = this._generateSimRef('B2C');
+
+        console.log(`🧪 [SIMULATION] B2C payment: ${amount} ${currency} to ${msisdn} | ref: ${transactionRef}`);
+
+        return {
+            success:             true,
+            transactionID:       txID,
+            conversationID:      this._generateSimRef('CONV'),
+            thirdPartyReference: transactionRef,
+            responseDescription: '[SIMULATION] B2C payment sent successfully',
+            simulated:           true
+        };
+    }
+
+    // ─────────────────────────────────────────────
+    // CONFIG VALIDATION
+    // ─────────────────────────────────────────────
+
     validateConfig() {
+        if (this.simulationMode) return true; // No keys needed in simulation
+
         const required = [
             'VODACOM_MPESA_API_KEY',
-            'VODACOM_MPESA_PUBLIC_KEY', 
+            'VODACOM_MPESA_PUBLIC_KEY',
             'VODACOM_MPESA_SERVICE_PROVIDER_CODE'
         ];
 
-        const missing = required.filter(key => !process.env[key]);
-        
+        const missing = required.filter(k => !process.env[k]);
         if (missing.length > 0) {
-            throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+            throw new Error(`Missing environment variables: ${missing.join(', ')}`);
         }
 
         return true;

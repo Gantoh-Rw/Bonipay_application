@@ -6,276 +6,266 @@ const WalletMovement = require('../models/WalletMovement');
 const SystemConfig = require('../models/SystemConfig');
 const ExternalExchangeService = require('./ExternalExchangeService');
 
+// ── Helper: round to 2 decimal places (fixes JS floating point e.g. 26.249999996)
+const r2 = (n) => Math.round(parseFloat(n) * 100) / 100;
+// ── Helper: round to 6 decimal places (for exchange rates)
+const r6 = (n) => Math.round(parseFloat(n) * 1000000) / 1000000;
+
 class CurrencyExchangeService {
-    // Generate transaction reference for exchanges
+
     static generateExchangeRef() {
         return `FX${Date.now()}${Math.random().toString(36).substr(2, 6)}`;
     }
-    
-    // Calculate exchange with fees
+
+    // ── Calculate exchange with fees ──────────────────────────────────────────
     static async calculateExchange(amount, fromCurrency, toCurrency) {
         try {
             if (fromCurrency === toCurrency) {
                 throw new Error('Cannot exchange same currencies');
             }
-            
-            // Get current rates with spread
+
             const rates = await ExternalExchangeService.getCurrentRatesWithSpread();
-            
-            // Get exchange fee
-            const exchangeFeeFlat = await SystemConfig.getValue('fx_fee_flat', 2.00);
-            const exchangeFeePercentage = await SystemConfig.getValue('fx_fee_percentage', 0.5);
-            
-            // Calculate conversion
-            let convertedAmount;
-            let exchangeRate;
-            
+
+            const exchangeFeeFlat       = await SystemConfig.getValue('fx_fee_flat',       2.00);
+            const exchangeFeePercentage = await SystemConfig.getValue('fx_fee_percentage',  0.5);
+
+            let convertedAmount, exchangeRate;
+
             if (fromCurrency === 'USD' && toCurrency === 'CDF') {
-                exchangeRate = rates.USD_to_CDF.customer_rate;
-                convertedAmount = parseFloat(amount) * exchangeRate;
+                exchangeRate    = rates.USD_to_CDF.customer_rate;
+                convertedAmount = r2(parseFloat(amount) * exchangeRate);
             } else if (fromCurrency === 'CDF' && toCurrency === 'USD') {
-                exchangeRate = rates.CDF_to_USD.customer_rate;
-                convertedAmount = parseFloat(amount) * exchangeRate;
+                exchangeRate    = rates.CDF_to_USD.customer_rate;
+                convertedAmount = r2(parseFloat(amount) * exchangeRate);
             } else {
                 throw new Error('Unsupported currency pair');
             }
-            
-            // Calculate fees (charged in source currency)
-            const percentageFee = (parseFloat(amount) * exchangeFeePercentage) / 100;
-            const totalFee = exchangeFeeFlat + percentageFee;
-            const totalSourceAmount = parseFloat(amount) + totalFee;
-            
+
+            const percentageFee     = r2((parseFloat(amount) * exchangeFeePercentage) / 100);
+            const totalFee          = r2(exchangeFeeFlat + percentageFee);
+            const totalSourceAmount = r2(parseFloat(amount) + totalFee);
+
             return {
-                success: true,
-                from_currency: fromCurrency,
-                to_currency: toCurrency,
-                source_amount: parseFloat(amount),
-                converted_amount: convertedAmount,
-                exchange_rate: exchangeRate,
+                success:             true,
+                from_currency:       fromCurrency,
+                to_currency:         toCurrency,
+                source_amount:       r2(parseFloat(amount)),
+                converted_amount:    convertedAmount,
+                exchange_rate:       exchangeRate,
                 fees: {
-                    flat_fee: exchangeFeeFlat,
+                    flat_fee:       exchangeFeeFlat,
                     percentage_fee: percentageFee,
-                    total_fee: totalFee
+                    total_fee:      totalFee
                 },
-                total_source_amount: totalSourceAmount,
+                total_source_amount:  totalSourceAmount,
                 net_converted_amount: convertedAmount,
                 rate_info: {
-                    base_rate: fromCurrency === 'USD' ? rates.USD_to_CDF.base_rate : rates.CDF_to_USD.base_rate,
-                    customer_rate: exchangeRate,
-                    spread_percentage: rates.USD_to_CDF.spread_percentage
+                    base_rate:          fromCurrency === 'USD' ? rates.USD_to_CDF.base_rate : rates.CDF_to_USD.base_rate,
+                    customer_rate:      exchangeRate,
+                    spread_percentage:  rates.USD_to_CDF.spread_percentage
                 }
             };
-            
+
         } catch (error) {
-            return {
-                success: false,
-                error: error.message
-            };
+            return { success: false, error: error.message };
         }
     }
-    
-    // Process currency exchange transaction
+
+    // ── Process currency exchange ─────────────────────────────────────────────
     static async processCurrencyExchange(userId, amount, fromCurrency, toCurrency, idempotencyKey = null) {
-        const transaction = await sequelize.transaction();
-        
+        const dbTx = await sequelize.transaction();
+
         try {
-            // Generate idempotency key if not provided
             if (!idempotencyKey) {
                 idempotencyKey = `fx_${userId}_${Date.now()}`;
             }
-            
-            // Check for existing transaction
-            const existingTransaction = await TransactionModel.findOne({
+
+            // Idempotency check
+            const existing = await TransactionModel.findOne({
                 where: { idempotency_key: idempotencyKey },
-                transaction
+                transaction: dbTx
             });
-            
-            if (existingTransaction) {
-                await transaction.rollback();
+
+            if (existing) {
+                await dbTx.commit();
                 return {
-                    success: true,
-                    transaction: existingTransaction,
-                    message: 'Exchange already processed',
+                    success:       true,
+                    transaction:   existing,
+                    message:       'Exchange already processed',
                     was_duplicate: true
                 };
             }
-            
-            // Get user
-            const user = await User.findByPk(userId, { transaction });
-            if (!user) {
-                throw new Error('User not found');
-            }
-            
-            if (user.role === 'admin') {
-                throw new Error('Admins cannot use exchange features');
-            }
-            
-            // Check transaction limits
+
+            const user = await User.findByPk(userId, { transaction: dbTx });
+            if (!user)              throw new Error('User not found');
+            if (user.role === 'admin') throw new Error('Admins cannot use exchange features');
+
             const maxExchangeAmount = await SystemConfig.getValue('max_exchange_amount', 5000.00);
             if (parseFloat(amount) > maxExchangeAmount) {
                 throw new Error(`Amount exceeds maximum exchange limit of ${maxExchangeAmount}`);
             }
-            
-            // Get both wallets
+
             const sourceWallet = await Wallet.findOne({
                 where: { userid: userId, currency: fromCurrency, status: 'active' },
-                transaction,
+                transaction: dbTx,
                 lock: true
             });
-            
             const targetWallet = await Wallet.findOne({
                 where: { userid: userId, currency: toCurrency, status: 'active' },
-                transaction
+                transaction: dbTx
             });
-            
-            if (!sourceWallet || !targetWallet) {
-                throw new Error('Required wallets not found');
-            }
-            
-            // Calculate exchange
-            const calculation = await this.calculateExchange(amount, fromCurrency, toCurrency);
-            if (!calculation.success) {
-                throw new Error(calculation.error);
-            }
-            
-            // Check source wallet balance and reserve funds
-            if (!sourceWallet.canReserve(calculation.total_source_amount)) {
+
+            if (!sourceWallet || !targetWallet) throw new Error('Required wallets not found');
+
+            const calc = await this.calculateExchange(amount, fromCurrency, toCurrency);
+            if (!calc.success) throw new Error(calc.error);
+
+            if (!sourceWallet.canReserve(calc.total_source_amount)) {
                 throw new Error('Insufficient funds for exchange');
             }
-            
-            // Reserve funds from source wallet
-            await sourceWallet.reserveFunds(calculation.total_source_amount, transaction);
-            
-            // Generate transaction reference
+
+            await sourceWallet.reserveFunds(calc.total_source_amount, dbTx);
+
             const transactionRef = this.generateExchangeRef();
-            
-            // Create exchange transaction record
-            const exchangeTransaction = await TransactionModel.create({
-                userid: userId,
-                type: 'fx_conversion',
-                amount: amount,
-                currency: fromCurrency,
+
+            const exchangeTx = await TransactionModel.create({
+                userid:          userId,
+                type:            'fx_conversion',
+                amount:          amount,
+                currency:        fromCurrency,
                 referencenumber: transactionRef,
                 transaction_ref: transactionRef,
-                status: 'processing',
-                walletid: sourceWallet.id,
-                fees: calculation.fees.total_fee,
-                initiated_at: new Date(),
+                status:          'processing',
+                walletid:        sourceWallet.id,
+                fees:            calc.fees.total_fee,
+                initiated_at:    new Date(),
                 idempotency_key: idempotencyKey,
-                fromcurrency: fromCurrency,
-                tocurrency: toCurrency,
-                exchangerate: calculation.exchange_rate,
-                convertedamount: calculation.converted_amount,
+                fromcurrency:    fromCurrency,
+                tocurrency:      toCurrency,
+                exchangerate:    r6(calc.exchange_rate),
+                convertedamount: calc.converted_amount,
                 metadata: {
-                    exchange_type: 'currency_conversion',
+                    exchange_type:    'currency_conversion',
                     source_wallet_id: sourceWallet.id,
                     target_wallet_id: targetWallet.id,
-                    calculation: calculation,
+                    calculation:      calc,
                     exchange_details: {
-                        base_rate: calculation.rate_info.base_rate,
-                        customer_rate: calculation.rate_info.customer_rate,
-                        spread: calculation.rate_info.spread_percentage
+                        base_rate:     calc.rate_info.base_rate,
+                        customer_rate: calc.rate_info.customer_rate,
+                        spread:        calc.rate_info.spread_percentage
                     }
                 }
-            }, { transaction });
-            
-            // Get balances before changes
-            const sourceBalanceBefore = sourceWallet.balance;
-            const targetBalanceBefore = targetWallet.balance;
-            
-            // Execute the exchange
-            await sourceWallet.completeFundsDeduction(calculation.total_source_amount, transaction);
-            await targetWallet.creditFunds(calculation.converted_amount, transaction);
-            
-            // Update transaction status
-            await exchangeTransaction.update({
-                status: 'completed',
+            }, { transaction: dbTx });
+
+            // Capture balances BEFORE mutation for accurate reporting
+            const sourceBalanceBefore = r2(sourceWallet.balance);
+            const targetBalanceBefore = r2(targetWallet.balance);
+
+            // Execute exchange
+            await sourceWallet.completeFundsDeduction(calc.total_source_amount, dbTx);
+            await targetWallet.creditFunds(calc.converted_amount, dbTx);
+
+            // Compute new balances explicitly — don't trust stale in-memory values
+            const sourceBalanceAfter = r2(sourceBalanceBefore - calc.total_source_amount);
+            const targetBalanceAfter = r2(targetBalanceBefore + calc.converted_amount);
+
+            // ── Credit FX fee to source currency float account ────────────────
+            // The fee leaves the user's wallet but belongs to the company.
+            // We credit it to the float so the books balance.
+            const FloatAccount = require('../models/FloatAccount');
+            const sourceFloat = await FloatAccount.findOne({
+                where: { currency_code: fromCurrency, status: 'active' },
+                transaction: dbTx
+            });
+            if (sourceFloat) {
+                const floatBalanceBefore = r2(parseFloat(sourceFloat.current_balance) || 0);
+                await sourceFloat.update({
+                    current_balance: r2(floatBalanceBefore + calc.fees.total_fee)
+                }, { transaction: dbTx });
+            }
+
+            await exchangeTx.update({
+                status:       'completed',
                 completed_at: new Date(),
-                balanceafter: sourceWallet.balance
-            }, { transaction });
-            
-            // Log wallet movements
+                balanceafter: sourceBalanceAfter
+            }, { transaction: dbTx });
+
             await WalletMovement.bulkCreate([
                 {
-                    transaction_id: exchangeTransaction.id,
-                    wallet_id: sourceWallet.id,
-                    movement_type: 'debit',
-                    amount: calculation.total_source_amount,
-                    balance_before: parseFloat(sourceBalanceBefore),
-                    balance_after: parseFloat(sourceWallet.balance),
-                    description: `Currency exchange: ${calculation.source_amount} ${fromCurrency} → ${calculation.converted_amount} ${toCurrency} (Rate: ${calculation.exchange_rate.toFixed(6)}, Fee: ${calculation.fees.total_fee})`
+                    transaction_id: exchangeTx.id,
+                    wallet_id:      sourceWallet.id,
+                    movement_type:  'debit',
+                    amount:         calc.total_source_amount,
+                    balance_before: sourceBalanceBefore,
+                    balance_after:  sourceBalanceAfter,
+                    description:    `Exchange: ${calc.source_amount} ${fromCurrency} → ${calc.converted_amount} ${toCurrency} (rate: ${calc.exchange_rate}, fee: ${calc.fees.total_fee})`
                 },
                 {
-                    transaction_id: exchangeTransaction.id,
-                    wallet_id: targetWallet.id,
-                    movement_type: 'credit',
-                    amount: calculation.converted_amount,
-                    balance_before: parseFloat(targetBalanceBefore),
-                    balance_after: parseFloat(targetWallet.balance),
-                    description: `Currency exchange received: ${calculation.source_amount} ${fromCurrency} → ${calculation.converted_amount} ${toCurrency}`
+                    transaction_id: exchangeTx.id,
+                    wallet_id:      targetWallet.id,
+                    movement_type:  'credit',
+                    amount:         calc.converted_amount,
+                    balance_before: targetBalanceBefore,
+                    balance_after:  targetBalanceAfter,
+                    description:    `Exchange received: ${calc.source_amount} ${fromCurrency} → ${calc.converted_amount} ${toCurrency}`
                 }
-            ], { transaction });
-            
-            await transaction.commit();
-            
+            ], { transaction: dbTx });
+
+            await dbTx.commit();
+
             return {
-                success: true,
-                transaction_id: exchangeTransaction.id,
+                success:         true,
+                transaction_id:  exchangeTx.id,
                 transaction_ref: transactionRef,
                 exchange_details: {
-                    from_amount: calculation.source_amount,
+                    from_amount:   calc.source_amount,
                     from_currency: fromCurrency,
-                    to_amount: calculation.converted_amount,
-                    to_currency: toCurrency,
-                    exchange_rate: calculation.exchange_rate,
-                    fees: calculation.fees.total_fee,
-                    total_debited: calculation.total_source_amount
+                    to_amount:     calc.converted_amount,
+                    to_currency:   toCurrency,
+                    exchange_rate: calc.exchange_rate,
+                    fees:          calc.fees.total_fee,
+                    total_debited: calc.total_source_amount
                 },
                 wallet_balances: {
                     [fromCurrency]: {
-                        previous_balance: parseFloat(sourceBalanceBefore),
-                        new_balance: parseFloat(sourceWallet.balance)
+                        previous_balance: sourceBalanceBefore,
+                        new_balance:      sourceBalanceAfter
                     },
                     [toCurrency]: {
-                        previous_balance: parseFloat(targetBalanceBefore),
-                        new_balance: parseFloat(targetWallet.balance)
+                        previous_balance: targetBalanceBefore,
+                        new_balance:      targetBalanceAfter
                     }
                 },
                 idempotency_key: idempotencyKey
             };
-            
+
         } catch (error) {
-            await transaction.rollback();
+            if (dbTx.finished !== 'commit') await dbTx.rollback();
             throw error;
         }
     }
-    
-    // Get current exchange rates for users
+
+    // ── Get current rates for display ─────────────────────────────────────────
     static async getCurrentRates() {
         try {
             const rates = await ExternalExchangeService.getCurrentRatesWithSpread();
-            
-            // Return user-friendly format
             return {
                 success: true,
                 rates: {
                     USD_to_CDF: {
-                        rate: rates.USD_to_CDF.customer_rate,
+                        rate:      rates.USD_to_CDF.customer_rate,
                         formatted: `1 USD = ${rates.USD_to_CDF.customer_rate.toFixed(2)} CDF`
                     },
                     CDF_to_USD: {
-                        rate: rates.CDF_to_USD.customer_rate,
+                        rate:      rates.CDF_to_USD.customer_rate,
                         formatted: `1 CDF = ${rates.CDF_to_USD.customer_rate.toFixed(6)} USD`
                     }
                 },
                 last_updated: rates.last_updated,
-                spread_info: `Rates include ${rates.USD_to_CDF.spread_percentage}% spread`
+                spread_info:  `Rates include ${rates.USD_to_CDF.spread_percentage}% spread`
             };
         } catch (error) {
-            return {
-                success: false,
-                error: error.message
-            };
+            return { success: false, error: error.message };
         }
     }
 }
