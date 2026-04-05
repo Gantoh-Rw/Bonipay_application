@@ -28,7 +28,7 @@ const PORT = process.env.PORT || 3000;
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://192.168.43.223:8081', 'http://localhost:8081'],
+   origin: ['http://localhost:5173','http://127.0.0.1:5173','http://192.168.43.223:8081','http://localhost:8081','https://voluble-profiterole-eaab60.netlify.app'],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key']
