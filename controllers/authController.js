@@ -106,17 +106,17 @@ const register = async (req, res) => {
         );
 
         const usdAccountNumber = generateAccountNumber('USD', user.id);
-        const cdfAccountNumber = generateAccountNumber('CDF', user.id);
+const kesAccountNumber = generateAccountNumber('KES', user.id);
 
-        await Account.bulkCreate([
-            { userId: user.id, accountNumber: usdAccountNumber, accountType: 'checking', currency: 'USD', status: 'active' },
-            { userId: user.id, accountNumber: cdfAccountNumber, accountType: 'checking', currency: 'CDF', status: 'active' },
-        ], { transaction });
+await Account.bulkCreate([
+    { userId: user.id, accountNumber: usdAccountNumber, accountType: 'checking', currency: 'USD', status: 'active' },
+    { userId: user.id, accountNumber: kesAccountNumber, accountType: 'checking', currency: 'KES', status: 'active' },
+], { transaction });
 
-        await Wallet.bulkCreate([
-            { userid: user.id, currency: 'USD', balance: 0.00, available_balance: 0.00, reserved_balance: 0.00, status: 'active' },
-            { userid: user.id, currency: 'CDF', balance: 0.00, available_balance: 0.00, reserved_balance: 0.00, status: 'active' },
-        ], { transaction });
+await Wallet.bulkCreate([
+    { userid: user.id, currency: 'USD', balance: 0.00, available_balance: 0.00, reserved_balance: 0.00, status: 'active' },
+    { userid: user.id, currency: 'KES', balance: 0.00, available_balance: 0.00, reserved_balance: 0.00, status: 'active' },
+], { transaction });
 
         await transaction.commit();
 
@@ -132,7 +132,7 @@ const register = async (req, res) => {
                 phoneNumber: user.phoneNumber, role: user.role,
                 accounts: [
                     { currency: 'USD', accountNumber: usdAccountNumber, accountType: 'checking' },
-                    { currency: 'CDF', accountNumber: cdfAccountNumber, accountType: 'checking' },
+                    { currency: 'KES', accountNumber: kesAccountNumber, accountType: 'checking' },
                 ],
             },
         });

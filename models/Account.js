@@ -26,7 +26,7 @@ const Account = sequelize.define('Account', {
     },
     currency: {
         type: DataTypes.STRING(3),
-        defaultValue: 'USD'
+        defaultValue: 'KES'
     },
     status: {
         type: DataTypes.ENUM('active', 'frozen', 'closed'),

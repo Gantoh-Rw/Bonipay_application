@@ -1,114 +1,58 @@
-const { sequelize } = require('../config/config');
+const bcrypt = require('bcrypt');
+const {sequelize} = require('../config/config');
 const User = require('../models/User');
-const Account = require('../models/Account');
 
-async function createUserWallets() {
+async function createAdmin() {
     try {
-        console.log('🏦 Creating wallets for regular users only...');
-        
-        // Get only users with role 'user' (exclude admins)
-        const users = await User.findAll({
-            where: {
-                role: 'user'
-            }
+        await sequelize.authenticate();
+        console.log('✅ Database connected');
+
+        // Admin credentials
+        const adminEmail = 'admin@bonipay.com';  // CHANGE THIS
+        const adminPassword = 'Admin1234';       // CHANGE THIS
+        const adminPhone = '+254794053256';      // CHANGE THIS (optional)
+
+        // Check if admin already exists
+        const existingAdmin = await User.findOne({
+            where: { email: adminEmail }
         });
-        
-        if (users.length === 0) {
-            console.log('❌ No regular users found. Only admins exist.');
-            console.log('💡 Wallets are only created for users with role="user", not admins.');
-            return;
+
+        if (existingAdmin) {
+            console.log('⚠️ Admin user already exists!');
+            console.log('Email:', existingAdmin.email);
+            console.log('Role:', existingAdmin.role);
+            process.exit(0);
         }
-        
-        console.log(`📊 Found ${users.length} regular user(s) to process...`);
-        
-        for (const user of users) {
-            console.log(`\nCreating wallets for user: ${user.email} (ID: ${user.id}, Role: ${user.role})`);
-            
-            // Create USD wallet
-            const [usdWallet, usdCreated] = await Account.findOrCreate({
-                where: { 
-                    userId: user.id, 
-                    currency: 'USD' 
-                },
-                defaults: {
-                    userId: user.id,
-                    accountNumber: `USD${user.id}${Date.now()}`,
-                    accountType: 'checking',
-                    balance: 0.00,
-                    currency: 'USD',
-                    status: 'active'
-                }
-            });
-            
-            // Create CDF wallet
-            const [cdfWallet, cdfCreated] = await Account.findOrCreate({
-                where: { 
-                    userId: user.id, 
-                    currency: 'CDF' 
-                },
-                defaults: {
-                    userId: user.id,
-                    accountNumber: `CDF${user.id}${Date.now()}`,
-                    accountType: 'checking',
-                    balance: 0.00,
-                    currency: 'CDF',
-                    status: 'active'
-                }
-            });
-            
-            console.log(`  ✅ USD Wallet: ${usdCreated ? 'Created' : 'Already exists'} (ID: ${usdWallet.id})`);
-            console.log(`  ✅ CDF Wallet: ${cdfCreated ? 'Created' : 'Already exists'} (ID: ${cdfWallet.id})`);
-        }
-        
-        // FIXED: Show final wallet summary WITHOUT associations
-        const allUsers = await User.findAll({
-            where: { role: 'user' },
-            attributes: ['id', 'email', 'role']
+
+        // Hash password
+        const hashedPassword = await bcrypt.hash(adminPassword, 10);
+
+        // Create admin user
+        const admin = await User.create({
+            email: adminEmail,
+            password: hashedPassword,
+            phoneNumber: adminPhone,
+            emailVerified: true,
+            firstName: 'System',
+            surname: 'Administrator',
+            role: 'admin'
         });
-        
-        const userWallets = await Account.findAll({
-            where: {
-                userId: allUsers.map(user => user.id)
-            },
-            order: [['userId', 'ASC'], ['currency', 'ASC']]
-        });
-        
-        console.log('\n🏦 Wallet Summary (Users Only):');
-        if (userWallets.length === 0) {
-            console.log('  No wallets found for regular users.');
-        } else {
-            userWallets.forEach(wallet => {
-                const user = allUsers.find(u => u.id === wallet.userId);
-                console.log(`  📧 ${user?.email || 'Unknown'} | ${wallet.currency} Wallet (ID: ${wallet.id}) | Balance: ${wallet.balance}`);
-            });
-        }
-        
-        // Show admin summary (no wallets)
-        const admins = await User.findAll({
-            where: { role: 'admin' },
-            attributes: ['id', 'email', 'role']
-        });
-        
-        if (admins.length > 0) {
-            console.log('\n👨‍💼 Admin Users (No Wallets Created):');
-            admins.forEach(admin => {
-                console.log(`  📧 ${admin.email} (ID: ${admin.id}) - Admin role`);
-            });
-        }
-        
-        console.log('\n✅ Wallet creation completed!');
-        console.log('💡 Note: Only regular users (role="user") have wallets. Admins manage the system but don\'t transact.');
-        
+
+        console.log('✅ Admin user created successfully!');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('📧 Email:', adminEmail);
+        console.log('🔑 Password:', adminPassword);
+        console.log('👤 Role:', admin.role);
+        console.log('🆔 User ID:', admin.id);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('⚠️ IMPORTANT: Change the password after first login!');
+
         process.exit(0);
+
     } catch (error) {
-        console.error('❌ Error creating wallets:', error);
+        console.error('❌ Error creating admin:', error);
         process.exit(1);
     }
 }
 
-// Run if called directly
-if (require.main === module) {
-    createUserWallets();
-}
-
-module.exports = createUserWallets;
+createAdmin();

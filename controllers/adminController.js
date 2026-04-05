@@ -476,7 +476,18 @@ const setCustomExchangeRate = async (req, res) => {
 const getExchangeRatesAdmin = async (req, res) => {
     try {
         const rates = await ExternalExchangeService.getCurrentRatesWithSpread();
-        const adminRates = { ...rates, admin_controls: { live_rates_enabled: rates.live_rates_enabled, current_spread: rates.USD_to_CDF.spread_percentage, base_vs_customer_difference: { usd_to_cdf: (rates.USD_to_CDF.base_rate - rates.USD_to_CDF.customer_rate).toFixed(2), cdf_to_usd: (rates.CDF_to_USD.base_rate - rates.CDF_to_USD.customer_rate).toFixed(6) }, profit_per_1000_usd: ((rates.USD_to_CDF.base_rate - rates.USD_to_CDF.customer_rate) * 1000).toFixed(2) } };
+        const adminRates = {
+            ...rates,
+            admin_controls: {
+                live_rates_enabled:        rates.live_rates_enabled,
+                current_spread:            rates.USD_to_KES.spread_percentage,
+                base_vs_customer_difference: {
+                    usd_to_kes: (rates.USD_to_KES.base_rate - rates.USD_to_KES.customer_rate).toFixed(2),
+                    kes_to_usd: (rates.KES_to_USD.base_rate - rates.KES_to_USD.customer_rate).toFixed(6)
+                },
+                profit_per_1000_usd: ((rates.USD_to_KES.base_rate - rates.USD_to_KES.customer_rate) * 1000).toFixed(2)
+            }
+        };
         res.status(200).json({ success: true, data: adminRates });
     } catch (error) {
         console.error('Get admin rates failed:', error);
@@ -545,7 +556,7 @@ const getExchangeAnalytics = async (req, res) => {
 
 const getExchangeRateHistory = async (req, res) => {
     try {
-        const { currency_pair = 'USD_CDF', days = 30 } = req.query;
+        const { currency_pair = 'USD_KES', days = 30 } = req.query;
         const [fromCurrency, toCurrency] = currency_pair.split('_');
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - parseInt(days));

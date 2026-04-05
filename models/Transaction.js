@@ -33,7 +33,7 @@ const Transaction = sequelize.define('Transaction', {
         type: DataTypes.STRING,
         allowNull: true,
         validate: {
-            isIn: [['USD', 'CDF']]
+            isIn: [['USD', 'KES']]
         }
     },
     referencenumber: {

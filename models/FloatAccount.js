@@ -11,14 +11,14 @@ const FloatAccount = sequelize.define('FloatAccount', {
         type: DataTypes.STRING(3),
         allowNull: false,
         validate: {
-            isIn: [['USD', 'CDF']]
+            isIn: [['USD', 'KES']]
         }
     },
     account_type: {
         type: DataTypes.STRING(20),
         allowNull: false,
         validate: {
-            isIn: [['mpesa_usd', 'mpesa_cdf']]
+            isIn: [['mpesa_usd', 'mpesa_kes']]
         }
     },
     paybill_number: {

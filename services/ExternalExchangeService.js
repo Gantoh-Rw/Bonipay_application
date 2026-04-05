@@ -14,15 +14,15 @@ class ExternalExchangeService {
                     timeout: 10000
                 });
                 
-                if (response.data && response.data.rates && response.data.rates.CDF) {
-                    const usdToCdf = parseFloat(response.data.rates.CDF);
-                    const cdfToUsd = 1 / usdToCdf;
+                if (response.data && response.data.rates && response.data.rates.KES) {
+                    const usdToKes = parseFloat(response.data.rates.KES);
+                    const kesToUsd = 1 / usdToKes;
                     
                     return {
                         success: true,
                         rates: {
-                            USD_to_CDF: usdToCdf,
-                            CDF_to_USD: cdfToUsd
+                            USD_to_KES: usdToKes,
+                            KES_to_USD: kesToUsd
                         },
                         provider: 'exchangerate-api.com',
                         timestamp: new Date()
@@ -36,19 +36,19 @@ class ExternalExchangeService {
             const fixerApiKey = process.env.FIXER_API_KEY;
             if (fixerApiKey) {
                 try {
-                    const response = await axios.get(`http://data.fixer.io/api/latest?access_key=${fixerApiKey}&base=USD&symbols=CDF`, {
+                    const response = await axios.get(`http://data.fixer.io/api/latest?access_key=${fixerApiKey}&base=USD&symbols=KES`, {
                         timeout: 10000
                     });
                     
-                    if (response.data && response.data.rates && response.data.rates.CDF) {
-                        const usdToCdf = parseFloat(response.data.rates.CDF);
-                        const cdfToUsd = 1 / usdToCdf;
+                    if (response.data && response.data.rates && response.data.rates.KES) {
+                        const usdToKes = parseFloat(response.data.rates.KES);
+                        const kesToUsd = 1 / usdToKes;
                         
                         return {
                             success: true,
                             rates: {
-                                USD_to_CDF: usdToCdf,
-                                CDF_to_USD: cdfToUsd
+                                USD_to_KES: usdToKes,
+                                KES_to_USD: kesToUsd
                             },
                             provider: 'fixer.io',
                             timestamp: new Date()
@@ -91,12 +91,12 @@ class ExternalExchangeService {
             
             if (!apiResult.success) {
                 // Use fallback rates if API fails
-                const fallbackUsdToCdf = await SystemConfig.getValue('fallback_usd_to_cdf', 2800.00);
-                const fallbackCdfToUsd = 1 / fallbackUsdToCdf;
+                const fallbackUsdToKes = await SystemConfig.getValue('fallback_usd_to_kes', 2800.00);
+                const fallbackKesToUsd = 1 / fallbackUsdToKes;
                 
                 apiResult.rates = {
-                    USD_to_CDF: fallbackUsdToCdf,
-                    CDF_to_USD: fallbackCdfToUsd
+                    USD_to_KES: fallbackUsdToKes,
+                    KES_to_USD: fallbackKesToUsd
                 };
                 apiResult.provider = 'fallback';
                 apiResult.success = true;
@@ -106,8 +106,8 @@ class ExternalExchangeService {
             await sequelize.query(`
                 INSERT INTO fx_rates (sourcecurrency, targetcurrency, rate, updatedat, provider)
                 VALUES 
-                    ('USD', 'CDF', :usd_to_cdf, NOW(), :provider),
-                    ('CDF', 'USD', :cdf_to_usd, NOW(), :provider)
+                    ('USD', 'KES', :usd_to_kes, NOW(), :provider),
+                    ('KES', 'USD', :kes_to_usd, NOW(), :provider)
                 ON CONFLICT (sourcecurrency, targetcurrency) 
                 DO UPDATE SET 
                     rate = EXCLUDED.rate,
@@ -116,8 +116,8 @@ class ExternalExchangeService {
             `, {
                 type: sequelize.QueryTypes.INSERT,
                 replacements: {
-                    usd_to_cdf: apiResult.rates.USD_to_CDF,
-                    cdf_to_usd: apiResult.rates.CDF_to_USD,
+                    usd_to_kes: apiResult.rates.USD_to_KES,
+                    kes_to_usd: apiResult.rates.KES_to_USD,
                     provider: apiResult.provider || 'external'
                 },
                 transaction
@@ -126,8 +126,8 @@ class ExternalExchangeService {
             await transaction.commit();
             
             console.log('✅ Exchange rates updated successfully');
-            console.log(`💱 USD → CDF: ${apiResult.rates.USD_to_CDF.toFixed(2)}`);
-            console.log(`💱 CDF → USD: ${apiResult.rates.CDF_to_USD.toFixed(6)}`);
+            console.log(`💱 USD → KES: ${apiResult.rates.USD_to_KES.toFixed(2)}`);
+            console.log(`💱 KES → USD: ${apiResult.rates.KES_to_USD.toFixed(6)}`);
             
             return {
                 success: true,
@@ -150,8 +150,8 @@ class ExternalExchangeService {
             const baseRates = await sequelize.query(`
                 SELECT sourcecurrency, targetcurrency, rate, updatedat, provider
                 FROM fx_rates 
-                WHERE sourcecurrency IN ('USD', 'CDF') 
-                AND targetcurrency IN ('USD', 'CDF')
+                WHERE sourcecurrency IN ('USD', 'KES') 
+                AND targetcurrency IN ('USD', 'KES')
                 ORDER BY updatedat DESC
             `, {
                 type: sequelize.QueryTypes.SELECT
@@ -167,31 +167,31 @@ class ExternalExchangeService {
             const spreadPercentage = await SystemConfig.getValue('fx_spread_percentage', 2.5);
             const spreadMultiplier = spreadPercentage / 100;
             
-            // Find USD->CDF and CDF->USD rates
-            const usdToCdfRate = baseRates.find(r => r.sourcecurrency === 'USD' && r.targetcurrency === 'CDF');
-            const cdfToUsdRate = baseRates.find(r => r.sourcecurrency === 'CDF' && r.targetcurrency === 'USD');
+            // Find USD->KES and KES->USD rates
+            const usdToKesRate = baseRates.find(r => r.sourcecurrency === 'USD' && r.targetcurrency === 'KES');
+            const kesToUsdRate = baseRates.find(r => r.sourcecurrency === 'KES' && r.targetcurrency === 'USD');
             
-            if (!usdToCdfRate || !cdfToUsdRate) {
+            if (!usdToKesRate || !kesToUsdRate) {
                 throw new Error('Exchange rates not found in database');
             }
             
             // Apply spread (customers get slightly worse rates)
-            const usdToCdfCustomer = parseFloat(usdToCdfRate.rate) * (1 - spreadMultiplier);
-            const cdfToUsdCustomer = parseFloat(cdfToUsdRate.rate) * (1 - spreadMultiplier);
+            const usdToKesCustomer = parseFloat(usdToKesRate.rate) * (1 - spreadMultiplier);
+            const kesToUsdCustomer = parseFloat(kesToUsdRate.rate) * (1 - spreadMultiplier);
             
             return {
-                USD_to_CDF: {
-                    base_rate: parseFloat(usdToCdfRate.rate),
-                    customer_rate: usdToCdfCustomer,
+                USD_to_KES: {
+                    base_rate: parseFloat(usdToKesRate.rate),
+                    customer_rate: usdToKesCustomer,
                     spread_percentage: spreadPercentage
                 },
-                CDF_to_USD: {
-                    base_rate: parseFloat(cdfToUsdRate.rate),
-                    customer_rate: cdfToUsdCustomer,
+                KES_to_USD: {
+                    base_rate: parseFloat(kesToUsdRate.rate),
+                    customer_rate: kesToUsdCustomer,
                     spread_percentage: spreadPercentage
                 },
-                last_updated: usdToCdfRate.updatedat,
-                provider: usdToCdfRate.provider,
+                last_updated: usdToKesRate.updatedat,
+                provider: usdToKesRate.provider,
                 live_rates_enabled: await SystemConfig.getValue('use_live_exchange_rates', true)
             };
             
@@ -235,11 +235,11 @@ class ExternalExchangeService {
             });
             
             // Also set the reverse rate
-            if (fromCurrency === 'USD' && toCurrency === 'CDF') {
+            if (fromCurrency === 'USD' && toCurrency === 'KES') {
                 const reverseRate = 1 / parseFloat(rate);
                 await sequelize.query(`
                     INSERT INTO fx_rates (sourcecurrency, targetcurrency, rate, updatedat, provider, updated_by)
-                    VALUES ('CDF', 'USD', :reverse_rate, NOW(), 'admin_override', :admin_id)
+                    VALUES ('KES', 'USD', :reverse_rate, NOW(), 'admin_override', :admin_id)
                     ON CONFLICT (sourcecurrency, targetcurrency) 
                     DO UPDATE SET 
                         rate = EXCLUDED.rate,

@@ -58,7 +58,7 @@ const MpesaWebhook = sequelize.define('MpesaWebhook', {
         type: DataTypes.INTEGER,
         defaultValue: 0
     },
-    // Kept for DB compatibility — not written by our Vodacom DRC code
+    // Kept for DB compatibility 
     flutterwave_transaction_id: {
         type: DataTypes.STRING(100),
         allowNull: true
@@ -72,8 +72,8 @@ const MpesaWebhook = sequelize.define('MpesaWebhook', {
         allowNull: true
     }
 }, {
-    tableName: 'webhook_logs',   // ← must match actual DB table name
-    timestamps: true             // uses default "createdAt" / "updatedAt" (camelCase) — matches DB
+    tableName: 'webhook_logs',   
+    timestamps: true             
 });
 
 module.exports = MpesaWebhook;

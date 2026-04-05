@@ -10,8 +10,8 @@ async function migrateExistingData() {
         console.log('🔄 Starting migration of existing data...');
         console.log('📊 This will:');
         console.log('   1. Create wallets from existing account balances');
-        console.log('   2. Update account numbers to new format (USD/CDF prefix)');
-        console.log('   3. Create missing CDF accounts for users');
+        console.log('   2. Update account numbers to new format (USD/KES prefix)');
+        console.log('   3. Create missing KES accounts for users');
         console.log('   4. Preserve all existing balance data');
         console.log('');
         
@@ -33,7 +33,7 @@ async function migrateExistingData() {
         let migratedUsers = 0;
         let walletsCreated = 0;
         let accountsUpdated = 0;
-        let cdfAccountsCreated = 0;
+        let kesAccountsCreated = 0;
         
         for (const user of users) {
             console.log(`📧 Processing: ${user.email} (ID: ${user.id})`);
@@ -108,42 +108,42 @@ async function migrateExistingData() {
                 }
             }
             
-            // Check if user needs both USD and CDF accounts
+            // Check if user needs both USD and KES accounts
             const currencies = existingAccounts.map(acc => acc.currency);
             const hasUSD = currencies.includes('USD');
-            const hasCDF = currencies.includes('CDF');
+            const hasKES = currencies.includes('KES');
             
-            // Create missing CDF account if user only has USD
-            if (hasUSD && !hasCDF) {
-                const cdfAccountNumber = `CDF${user.id}${Date.now()}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+            // Create missing KES account if user only has USD
+            if (hasUSD && !hasKES) {
+                const kesAccountNumber = `KES${user.id}${Date.now()}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
                 
-                // Create CDF account
+                // Create KES account
                 await Account.create({
                     userId: user.id,
-                    accountNumber: cdfAccountNumber,
+                    accountNumber: kesAccountNumber,
                     accountType: 'checking',
-                    currency: 'CDF',
+                    currency: 'KES',
                     status: 'active'
                 }, { transaction });
                 
-                // Create CDF wallet with zero balance
+                // Create KES wallet with zero balance
                 await Wallet.create({
                     userid: user.id,
-                    currency: 'CDF',
+                    currency: 'KES',
                     balance: 0,
                     available_balance: 0,
                     reserved_balance: 0,
                     status: 'active'
                 }, { transaction });
                 
-                console.log(`   ➕ Created missing CDF account: ${cdfAccountNumber}`);
-                console.log(`   ➕ Created CDF wallet with zero balance`);
-                cdfAccountsCreated++;
+                console.log(`   ➕ Created missing KES account: ${kesAccountNumber}`);
+                console.log(`   ➕ Created KES wallet with zero balance`);
+                kesAccountsCreated++;
                 walletsCreated++;
             }
             
-            // Create missing USD account if user only has CDF (edge case)
-            if (hasCDF && !hasUSD) {
+            // Create missing USD account if user only has KES (edge case)
+            if (hasKES && !hasUSD) {
                 const usdAccountNumber = `USD${user.id}${Date.now()}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
                 
                 await Account.create({
@@ -180,10 +180,10 @@ async function migrateExistingData() {
         console.log(`   👥 Users migrated: ${migratedUsers}`);
         console.log(`   💰 Wallets created/updated: ${walletsCreated}`);
         console.log(`   💳 Account numbers updated: ${accountsUpdated}`);
-        console.log(`   🆕 CDF accounts created: ${cdfAccountsCreated}`);
+        console.log(`   🆕 KES accounts created: ${kesAccountsCreated}`);
         console.log('');
         console.log('✅ All existing balances have been preserved');
-        console.log('✅ All users now have both USD and CDF accounts');
+        console.log('✅ All users now have both USD and KES accounts');
         console.log('✅ All account numbers follow new format');
         console.log('✅ Wallet-based balance management is now active');
         console.log('');

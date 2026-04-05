@@ -157,8 +157,8 @@ class WebhookController {
                 conversationId:  `SIM_CONV_${Date.now()}`,
                 status:          'successful',
                 amount:          String(pendingTx.amount),
-                msisdn:          pendingTx.metadata?.user_phone || '243000000000',
-                resultDesc:      '[SIMULATION] Payment confirmed',
+                msisdn:          pendingTx.metadata?.user_phone || '254000000000',
+                resultDesc:      'Payment confirmed',
                 event:           'c2b.completed'
             };
 
@@ -217,8 +217,8 @@ class WebhookController {
                 conversationId:  `SIM_CONV_${Date.now()}`,
                 status:          'SUCCESSFUL',
                 amount:          String(processingTx.amount),
-                msisdn:          processingTx.metadata?.phone_number || processingTx.metadata?.recipient_phone || '243000000000',
-                resultDesc:      '[SIMULATION] Transfer confirmed',
+                msisdn:          processingTx.metadata?.phone_number || processingTx.metadata?.recipient_phone || '254000000000',
+                resultDesc:      'Transfer confirmed',
                 event:           'b2c.completed'
             };
 
@@ -272,7 +272,7 @@ class WebhookController {
                 });
             }
 
-            const failReason = reason || '[SIMULATION] Payment failed or cancelled by user';
+            const failReason = reason || 'Payment failed or cancelled by user';
             let result;
 
             if (tx.type === 'deposit') {

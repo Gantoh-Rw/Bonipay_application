@@ -5,6 +5,7 @@ const TransactionModel = require('../models/Transaction');
 const WalletMovement = require('../models/WalletMovement');
 const SystemConfig = require('../models/SystemConfig');
 const ExternalExchangeService = require('./ExternalExchangeService');
+const BlockchainService = require('./BlockchainService');
 
 // ── Helper: round to 2 decimal places (fixes JS floating point e.g. 26.249999996)
 const r2 = (n) => Math.round(parseFloat(n) * 100) / 100;
@@ -31,11 +32,11 @@ class CurrencyExchangeService {
 
             let convertedAmount, exchangeRate;
 
-            if (fromCurrency === 'USD' && toCurrency === 'CDF') {
-                exchangeRate    = rates.USD_to_CDF.customer_rate;
+            if (fromCurrency === 'USD' && toCurrency === 'KES') {
+                exchangeRate    = rates.USD_to_KES.customer_rate;
                 convertedAmount = r2(parseFloat(amount) * exchangeRate);
-            } else if (fromCurrency === 'CDF' && toCurrency === 'USD') {
-                exchangeRate    = rates.CDF_to_USD.customer_rate;
+            } else if (fromCurrency === 'KES' && toCurrency === 'USD') {
+                exchangeRate    = rates.KES_to_USD.customer_rate;
                 convertedAmount = r2(parseFloat(amount) * exchangeRate);
             } else {
                 throw new Error('Unsupported currency pair');
@@ -60,9 +61,9 @@ class CurrencyExchangeService {
                 total_source_amount:  totalSourceAmount,
                 net_converted_amount: convertedAmount,
                 rate_info: {
-                    base_rate:          fromCurrency === 'USD' ? rates.USD_to_CDF.base_rate : rates.CDF_to_USD.base_rate,
+                    base_rate:          fromCurrency === 'USD' ? rates.USD_to_KES.base_rate : rates.KES_to_USD.base_rate,
                     customer_rate:      exchangeRate,
-                    spread_percentage:  rates.USD_to_CDF.spread_percentage
+                    spread_percentage:  rates.USD_to_KES.spread_percentage
                 }
             };
 
@@ -212,7 +213,21 @@ class CurrencyExchangeService {
             ], { transaction: dbTx });
 
             await dbTx.commit();
-
+            
+            // Log to blockchain after successful commit (non-blocking)
+BlockchainService.logTransaction({
+    transactionRef: transactionRef,
+    amount:         calc.source_amount,
+    fromCurrency:   fromCurrency,
+    toCurrency:     toCurrency,
+    exchangeRate:   calc.exchange_rate,
+    fees:           calc.fees.total_fee
+}).then(result => {
+    if (result.success) {
+        // Optionally store txHash back to DB
+        exchangeTx.update({ metadata: { ...exchangeTx.metadata, blockchain_tx: result.txHash } });
+    }
+});
             return {
                 success:         true,
                 transaction_id:  exchangeTx.id,
@@ -252,17 +267,17 @@ class CurrencyExchangeService {
             return {
                 success: true,
                 rates: {
-                    USD_to_CDF: {
-                        rate:      rates.USD_to_CDF.customer_rate,
-                        formatted: `1 USD = ${rates.USD_to_CDF.customer_rate.toFixed(2)} CDF`
+                    USD_to_KES: {
+                        rate:      rates.USD_to_KES.customer_rate,
+                        formatted: `1 USD = ${rates.USD_to_KES.customer_rate.toFixed(2)} KES`
                     },
-                    CDF_to_USD: {
-                        rate:      rates.CDF_to_USD.customer_rate,
-                        formatted: `1 CDF = ${rates.CDF_to_USD.customer_rate.toFixed(6)} USD`
+                    KES_to_USD: {
+                        rate:      rates.KES_to_USD.customer_rate,
+                        formatted: `1 KES = ${rates.KES_to_USD.customer_rate.toFixed(6)} USD`
                     }
                 },
                 last_updated: rates.last_updated,
-                spread_info:  `Rates include ${rates.USD_to_CDF.spread_percentage}% spread`
+                spread_info:  `Rates include ${rates.USD_to_KES.spread_percentage}% spread`
             };
         } catch (error) {
             return { success: false, error: error.message };

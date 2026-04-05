@@ -64,18 +64,18 @@ const updateProfileValidation = [
         .trim()
         .isLength({ max: 100 })
         .withMessage('Other names must be less than 100 characters'),
-    body('phoneNumber')
-        .optional()
-        .isMobilePhone()
-        .withMessage('Please provide a valid phone number')
+    body('phone_number')
+    .trim()
+    .matches(/^\+?[1-9]\d{7,14}$/)
+    .withMessage('A valid phone number is required (e.g. +254712345678)'),
 ];
 const validateCustomRate = [
     body('from_currency')
-        .isIn(['USD', 'CDF'])
-        .withMessage('From currency must be USD or CDF'),
+        .isIn(['USD', 'KES'])
+        .withMessage('From currency must be USD or KES'),
     body('to_currency')
-        .isIn(['USD', 'CDF'])
-        .withMessage('To currency must be USD or CDF'),
+        .isIn(['USD', 'KES'])
+        .withMessage('To currency must be USD or KES'),
     body('rate')
         .isFloat({ min: 0.0001 })
         .withMessage('Rate must be a positive number'),

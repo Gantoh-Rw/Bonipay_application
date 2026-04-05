@@ -1,6 +1,7 @@
 const express = require('express');
 const cors    = require('cors');
 const { sequelize } = require('./config/config');
+const ExternalExchangeService = require('./services/ExternalExchangeService');
 require('dotenv').config();
 
 // ── Models ────────────────────────────────────────────────────────────────────
@@ -27,7 +28,7 @@ const PORT = process.env.PORT || 3000;
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 app.use(cors({
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://192.168.43.223:8081'],
+    origin: ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://192.168.43.223:8081', 'http://localhost:8081'],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key']
@@ -54,11 +55,11 @@ app.use('/api/webhooks',     webhookRoutes);
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
     res.json({
-        message:     'Bonipay API – Vodacom DRC M-Pesa',
+        message:     'Bonipay API – SAFARICOM KEN M-Pesa',
         version:     '2.0.0',
         timestamp:   new Date().toISOString(),
-        provider:    'Vodacom DRC',
-        currencies:  ['USD', 'CDF'],
+        provider:    'Safaricom KENYA',
+        currencies:  ['USD', 'KES'],
         simulation:  process.env.MPESA_SIMULATION === 'true',
         endpoints: {
             deposit:    'POST /api/mobile-money/deposit',
@@ -89,6 +90,8 @@ app.use('*', (req, res) => {
 async function startServer() {
     try {
         await sequelize.authenticate();
+        
+
         console.log('✅ Database connected');
 
         // Associations
@@ -117,12 +120,15 @@ async function startServer() {
 
         app.listen(PORT, () => {
             console.log(`🚀 Server running on port ${PORT}`);
-            console.log(`💳 Provider  : Vodacom DRC M-Pesa`);
-            console.log(`💱 Currencies: USD, CDF`);
+            console.log(`💳 Provider  : Safaricom KENYA M-Pesa`);
+            console.log(`💱 Currencies: USD, KES`);
             console.log(`🧪 Simulation: ${process.env.MPESA_SIMULATION === 'true' ? 'ON' : 'OFF'}`);
             console.log(`📡 Webhooks  : http://localhost:${PORT}/api/webhooks`);
             console.log(`💰 Money API : http://localhost:${PORT}/api/mobile-money`);
         });
+         ExternalExchangeService.scheduleRateUpdate();
+        await ExternalExchangeService.updateExchangeRates();
+        
 
     } catch (error) {
         console.error('❌ Startup failed:', error);

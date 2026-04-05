@@ -117,8 +117,8 @@ User.prototype.getPublicData = function() {
  * Unverified users get tight limits.
  * Verified users get full limits.
  *
- * CDF limits = USD limits × USD_TO_CDF_RATE (2800 from system_configs).
- * This means 50,000 CDF (~$18) passes the same check as $18 USD — correct.
+ * KES limits = USD limits × USD_TO_KES_RATE (2800 from system_configs).
+ * This means 50,000 KES  passes the same check as $18 USD — correct.
  */
 User.prototype.getTransactionLimits = async function() {
     const kyc = await this.getKyc();
@@ -135,9 +135,9 @@ User.prototype.getTransactionLimits = async function() {
     const rate = await SystemConfig.getValue('fallback_usd_to_cdf', 2800);
 
     // CDF limits = USD limits × rate
-    const CDF_DEPOSIT_LIMIT    = USD_DEPOSIT_LIMIT    * rate;
-    const CDF_WITHDRAWAL_LIMIT = USD_WITHDRAWAL_LIMIT * rate;
-    const CDF_MONTHLY_LIMIT    = USD_MONTHLY_LIMIT    * rate;
+    const KES_DEPOSIT_LIMIT    = USD_DEPOSIT_LIMIT    * rate;
+    const KES_WITHDRAWAL_LIMIT = USD_WITHDRAWAL_LIMIT * rate;
+    const KES_MONTHLY_LIMIT    = USD_MONTHLY_LIMIT    * rate;
 
     return {
         USD: {
@@ -145,10 +145,10 @@ User.prototype.getTransactionLimits = async function() {
             daily_withdrawal_limit: USD_WITHDRAWAL_LIMIT,
             monthly_limit:          USD_MONTHLY_LIMIT
         },
-        CDF: {
-            daily_deposit_limit:    CDF_DEPOSIT_LIMIT,
-            daily_withdrawal_limit: CDF_WITHDRAWAL_LIMIT,
-            monthly_limit:          CDF_MONTHLY_LIMIT
+        KES: {
+            daily_deposit_limit:    KES_DEPOSIT_LIMIT,
+            daily_withdrawal_limit: KES_WITHDRAWAL_LIMIT,
+            monthly_limit:          KES_MONTHLY_LIMIT
         }
     };
 };
@@ -158,13 +158,13 @@ User.prototype.getTransactionLimits = async function() {
  *
  * @param {number} amount    - Transaction amount
  * @param {string} type      - 'deposit' | 'withdrawal'
- * @param {string} currency  - 'USD' | 'CDF'  (defaults to 'USD' for backward compat)
+ * @param {string} currency  - 'USD' | 'KES'  (defaults to 'USD' for backward compat)
  */
-User.prototype.canProcessTransaction = async function(amount, type, currency = 'USD') {
+User.prototype.canProcessTransaction = async function(amount, type, currency = 'KES') {
     const limits = await this.getTransactionLimits();
 
     // Fall back to USD limits if an unknown currency is passed
-    const currencyLimits = limits[currency] || limits['USD'];
+    const currencyLimits = limits[currency] || limits['KES'];
 
     switch (type) {
         case 'deposit':

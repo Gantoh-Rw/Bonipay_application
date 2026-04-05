@@ -79,7 +79,7 @@ router.get('/transactions', [
   query('limit').optional().isInt({ min: 1, max: 100 }),
   query('status').optional().isIn(['all', 'pending', 'processing', 'completed', 'failed', 'cancelled']),
   query('type').optional().isIn(['all', 'deposit', 'withdrawal', 'transfer']),
-  query('currency').optional().isIn(['all', 'USD', 'CDF']),
+  query('currency').optional().isIn(['all', 'USD', 'KES']),
   query('user_id').optional().isInt(),
   query('date_from').optional().isISO8601(),
   query('date_to').optional().isISO8601()
@@ -164,7 +164,7 @@ router.get('/analytics/revenue', [
   query('period').optional().isIn(['daily', 'weekly', 'monthly']),
   query('date_from').optional().isISO8601(),
   query('date_to').optional().isISO8601(),
-  query('currency').optional().isIn(['USD', 'CDF', 'all'])
+  query('currency').optional().isIn(['USD', 'KES', 'all'])
 ], handleValidationErrors, getRevenueAnalytics);
 
 router.get('/analytics/transaction-trends', [

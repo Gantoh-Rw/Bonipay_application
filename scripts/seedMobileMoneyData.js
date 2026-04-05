@@ -9,21 +9,21 @@ async function seedMobileMoneyData() {
         // Create float accounts (replace with your actual M-Pesa details)
         const floatAccounts = await FloatAccount.bulkCreate([
             {
-                currency_code: 'USD',
-                account_type: 'mpesa_usd',
-                paybill_number: '123456', // ← Replace with your actual USD paybill
-                current_balance: 10000.00,
-                low_balance_threshold: 1000.00,
-                status: 'active'
-            },
-            {
-                currency_code: 'CDF',
-                account_type: 'mpesa_cdf',
-                paybill_number: '654321', // ← Replace with your actual CDF paybill
-                current_balance: 25000000.00,
-                low_balance_threshold: 1000000.00,
-                status: 'active'
-            }
+    currency_code: 'USD',
+    account_type: 'mpesa_usd',
+    paybill_number: '123456',
+    current_balance: 5000.00,          // $5,000 USD float
+    low_balance_threshold: 500.00,     // alert below $500
+    status: 'active'
+},
+{
+    currency_code: 'KES',
+    account_type: 'mpesa_kes',
+    paybill_number: '4141414',         
+    current_balance: 500000.00,        // KES 500,000 float
+    low_balance_threshold: 50000.00,   // alert below KES 50,000
+    status: 'active'
+}
         ], {
             ignoreDuplicates: true
         });

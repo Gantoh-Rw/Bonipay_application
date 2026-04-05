@@ -16,8 +16,8 @@ const validateDeposit = [
         .isFloat({ min: 1 })
         .withMessage('Amount must be at least 1'),
     body('currency')
-        .isIn(['USD', 'CDF'])
-        .withMessage('Currency must be USD or CDF')
+        .isIn(['USD', 'KES'])
+        .withMessage('Currency must be USD or KES')
 ];
 
 const validateTransfer = [
@@ -28,8 +28,8 @@ const validateTransfer = [
         .isFloat({ min: 0.01 })
         .withMessage('Amount must be greater than 0'),
     body('currency')
-        .isIn(['USD', 'CDF'])
-        .withMessage('Currency must be USD or CDF')
+        .isIn(['USD', 'KES'])
+        .withMessage('Currency must be USD or KES')
 ];
 
 const validateWithdrawal = [
@@ -37,11 +37,12 @@ const validateWithdrawal = [
         .isFloat({ min: 1 })
         .withMessage('Amount must be at least 1'),
     body('currency')
-        .isIn(['USD', 'CDF'])
-        .withMessage('Currency must be USD or CDF'),
+        .isIn(['USD', 'KES'])
+        .withMessage('Currency must be USD or KES'),
     body('phone_number')
-        .isMobilePhone()
-        .withMessage('A valid phone number is required'),
+    .trim()
+    .matches(/^\+?[1-9]\d{7,14}$/)
+    .withMessage('A valid phone number is required'),
     body('recipient_name')
         .optional()
         .trim()
@@ -59,11 +60,11 @@ const validateExchange = [
         .isFloat({ min: 0.01 })
         .withMessage('Amount must be greater than 0'),
     body('from_currency')
-        .isIn(['USD', 'CDF'])
-        .withMessage('from_currency must be USD or CDF'),
+        .isIn(['USD', 'KES'])
+        .withMessage('from_currency must be USD or KES'),
     body('to_currency')
-        .isIn(['USD', 'CDF'])
-        .withMessage('to_currency must be USD or CDF')
+        .isIn(['USD', 'KES'])
+        .withMessage('to_currency must be USD or KES')
         .custom((value, { req }) => {
             if (value === req.body.from_currency) {
                 throw new Error('from_currency and to_currency cannot be the same');
@@ -77,11 +78,11 @@ const validateExchangePreview = [
         .isFloat({ min: 0.01 })
         .withMessage('Amount must be greater than 0'),
     query('from_currency')
-        .isIn(['USD', 'CDF'])
-        .withMessage('from_currency must be USD or CDF'),
+        .isIn(['USD', 'KES'])
+        .withMessage('from_currency must be USD or KES'),
     query('to_currency')
-        .isIn(['USD', 'CDF'])
-        .withMessage('to_currency must be USD or CDF')
+        .isIn(['USD', 'KES'])
+        .withMessage('to_currency must be USD or KES')
 ];
 
 // ── Money-flow routes ─────────────────────────────────────────────────────────
